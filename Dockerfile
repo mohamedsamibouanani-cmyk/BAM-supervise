@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-RUN chmod +x /app/entrypoint.sh
+# Normalize Windows CRLF line endings so the Linux container can execute the shell script.
+RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 EXPOSE 8000
 ENTRYPOINT ["/app/entrypoint.sh"]
