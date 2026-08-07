@@ -1,0 +1,36 @@
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-bam_supervise}
+      MYSQL_USER: ${MYSQL_USER:-bam_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-bam_password}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-root_password}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+    volumes:
+      - media_data:/app/media
+      - static_data:/app/staticfiles
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  mysql_data:
+  media_data:
+  static_data:
