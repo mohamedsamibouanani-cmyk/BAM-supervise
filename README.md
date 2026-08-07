@@ -26,6 +26,7 @@ Après détection, l'application analyse les données présentes dans les systè
 - historique des statuts et journal d'audit ;
 - interface Django/Bootstrap ;
 - MySQL 8 ;
+- migrations Django versionnées ;
 - Dockerfile + Docker Compose ;
 - tests Django et CI GitHub Actions.
 
@@ -62,10 +63,9 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-### 3. Générer les migrations et initialiser la base
+### 3. Initialiser la base avec les migrations versionnées
 
 ```bash
-python manage.py makemigrations supervision
 python manage.py migrate
 python manage.py seed_bam
 python manage.py createsuperuser
@@ -101,7 +101,7 @@ Pour un test sans envoyer de vrai mail :
 EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
 ```
 
-Les tests automatiques utilisent le backend mémoire de Django ; ils vérifient le routage et le contenu sans contacter un serveur externe.
+Les tests automatiques utilisent un backend de test et vérifient le routage, les destinataires et le contenu sans utiliser de véritables adresses BAM.
 
 ## Ajouter les cinq collaborateurs
 
@@ -113,27 +113,30 @@ La table `contact_groupe` conserve les membres. `notification_destinataire` fige
 
 ```bash
 cp .env.example .env
-# renseigner au minimum les mots de passe
+# renseigner au minimum les mots de passe et, si besoin, les paramètres SMTP
 
 docker compose up --build
 ```
 
 L'application est exposée sur `http://localhost:8000` et MySQL est conservé dans le volume `mysql_data`.
 
-Pour créer automatiquement le premier superviseur au premier démarrage Docker, ajouter dans `.env` :
+Pour créer automatiquement le premier superviseur au premier démarrage Docker, renseigner dans `.env` :
 
 ```env
 DJANGO_SUPERVISEUR_USERNAME=superviseur
 DJANGO_SUPERVISEUR_PASSWORD=change-me-now
 DJANGO_SUPERVISEUR_EMAIL=superviseur@example.com
+DJANGO_SUPERVISEUR_NOM=Superviseur BAM
 ```
 
 ## Tests
 
 ```bash
-DB_ENGINE=sqlite python manage.py makemigrations supervision
+DB_ENGINE=sqlite python manage.py makemigrations --check --dry-run
 DB_ENGINE=sqlite EMAIL_BACKEND=django.core.mail.backends.locmem.EmailBackend python manage.py test
 ```
+
+L'intégration GitHub valide également les migrations et les tests sur **MySQL 8.4**, puis construit et démarre l'application avec **Docker Compose** et vérifie la réponse HTTP de la page de connexion.
 
 Les tests couvrent notamment : normalisation minimale, détection d'un envoi absent, routage/envoi d'e-mail et ajout d'un collaborateur.
 
@@ -143,6 +146,7 @@ Les tests couvrent notamment : normalisation minimale, détection d'un envoi abs
 - adresses réelles des collaborateurs ;
 - flux SMI/SICOM/SIBO confirmés ;
 - règles métier détaillées par attribut/service/système ;
+- données historiques étiquetées si un modèle ML doit être entraîné et activé ;
 - secrets via coffre-fort ou variables d'environnement ;
 - HTTPS/reverse proxy ;
 - sauvegarde MySQL ;
