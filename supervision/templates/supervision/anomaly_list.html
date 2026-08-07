@@ -1,0 +1,8 @@
+{% extends 'supervision/base.html' %}
+{% block content %}
+<h1 class="h3 mb-3">Anomalies</h1>
+<form class="row g-2 mb-3" method="get"><div class="col-md-2"><select class="form-select" name="niveau"><option value="">Tous niveaux</option><option>ENVOI</option><option>SERVICE</option><option>ATTRIBUT</option></select></div><div class="col-md-2"><select class="form-select" name="statut"><option value="">Tous statuts</option><option>DETECTEE</option><option>ANALYSEE</option><option>VALIDEE</option><option>NOTIFIEE</option><option>RESOLUE</option><option>PERSISTANTE</option></select></div><div class="col-md-2"><select class="form-select" name="systeme"><option value="">Tous systèmes</option>{% for s in systems %}<option value="{{ s.code_systeme }}">{{ s.code_systeme }}</option>{% endfor %}</select></div><div class="col-md-2"><button class="btn btn-outline-primary">Filtrer</button></div></form>
+<div class="card border-0 shadow-sm"><div class="table-responsive"><table class="table table-hover mb-0"><thead><tr><th>Code envoi</th><th>Service</th><th>Attribut</th><th>Niveau</th><th>Écart</th><th>Système</th><th>Statut</th><th></th></tr></thead><tbody>
+{% for a in anomalies %}<tr><td>{{ a.code_envoi }}</td><td>{{ a.code_service|default:'-' }}</td><td>{{ a.attribut.code_attribut|default:'-' }}</td><td>{{ a.niveau }}</td><td>{{ a.type_ecart }}</td><td>{{ a.systeme_ecart|default:'-' }}</td><td>{{ a.statut }}</td><td><a href="{% url 'anomaly_detail' a.pk %}">Détail</a></td></tr>{% empty %}<tr><td colspan="8" class="text-muted">Aucune anomalie.</td></tr>{% endfor %}
+</tbody></table></div></div>
+{% endblock %}

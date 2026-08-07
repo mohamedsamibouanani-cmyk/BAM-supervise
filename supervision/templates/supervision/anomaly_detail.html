@@ -1,0 +1,8 @@
+{% extends 'supervision/base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3"><div><h1 class="h3 mb-1">Anomalie #{{ anomaly.pk }}</h1><p class="text-muted mb-0">{{ anomaly.code_envoi }} · {{ anomaly.niveau }} · {{ anomaly.type_ecart }}</p></div><a class="btn btn-primary" href="{% url 'anomaly_validate' anomaly.pk %}">Valider le motif</a></div>
+<div class="row g-3">
+<div class="col-lg-7"><div class="card border-0 shadow-sm mb-3"><div class="card-header bg-white"><strong>Comparaison</strong></div><div class="table-responsive"><table class="table mb-0"><thead><tr><th>Système</th><th>Présent</th><th>Valeur brute</th><th>Valeur comparée</th><th>Écart</th></tr></thead><tbody>{% for d in anomaly.details.all %}<tr><td>{{ d.systeme.code_systeme }}</td><td>{{ d.objet_present|yesno:'Oui,Non' }}</td><td>{{ d.valeur_brute|default:'-' }}</td><td>{{ d.valeur_normalisee|default:'-' }}</td><td>{{ d.est_ecart|yesno:'Oui,Non' }}</td></tr>{% endfor %}</tbody></table></div></div></div>
+<div class="col-lg-5"><div class="card border-0 shadow-sm mb-3"><div class="card-header bg-white"><strong>Motifs proposés</strong></div><div class="list-group list-group-flush">{% for p in anomaly.predictions.all %}<div class="list-group-item"><div class="d-flex justify-content-between"><strong>#{{ p.rang }} {{ p.motif.libelle }}</strong><span>{{ p.score_confiance|floatformat:2 }}</span></div><small class="text-muted">{{ p.source_prediction }} · système proposé : {{ p.systeme_a_corriger_predit|default:'-' }}</small></div>{% empty %}<div class="list-group-item text-muted">Aucun motif proposé.</div>{% endfor %}</div></div></div>
+</div>
+{% endblock %}

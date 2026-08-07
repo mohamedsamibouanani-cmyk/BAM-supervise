@@ -1,0 +1,2 @@
+{% extends 'supervision/base.html' %}
+{% block content %}<div class="row justify-content-center"><div class="col-lg-7"><div class="card border-0 shadow-sm"><div class="card-body p-4"><h1 class="h4">Validation du motif</h1><p class="text-muted">Envoi {{ anomaly.code_envoi }} · {{ anomaly.niveau }} {{ anomaly.type_ecart }}</p><form method="post">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary">Valider et envoyer l’e-mail</button><a class="btn btn-link" href="{% url 'anomaly_detail' anomaly.pk %}">Annuler</a></form></div></div></div></div>{% endblock %}

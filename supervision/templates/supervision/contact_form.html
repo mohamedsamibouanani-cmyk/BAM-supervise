@@ -1,0 +1,2 @@
+{% extends 'supervision/base.html' %}
+{% block content %}<div class="row justify-content-center"><div class="col-lg-6"><div class="card border-0 shadow-sm"><div class="card-body p-4"><h1 class="h4">Ajouter un collaborateur</h1><p class="text-muted">Groupe {{ group.nom_groupe }} · système {{ group.systeme.code_systeme }}</p><form method="post">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary">Ajouter l’adresse e-mail</button></form></div></div></div></div>{% endblock %}

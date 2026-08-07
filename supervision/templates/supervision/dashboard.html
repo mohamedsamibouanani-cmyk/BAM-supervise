@@ -1,0 +1,13 @@
+{% extends 'supervision/base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4"><div><h1 class="h3 mb-1">Tableau de bord</h1><p class="text-muted mb-0">Supervision des écarts SMI · SICOM · SIBO</p></div><a class="btn btn-primary" href="{% url 'campaign_create' %}">Importer 3 fichiers</a></div>
+<div class="row g-3 mb-4">
+  <div class="col-md-4"><div class="metric-card"><span>Total anomalies</span><strong>{{ total }}</strong></div></div>
+  <div class="col-md-4"><div class="metric-card"><span>Anomalies ouvertes</span><strong>{{ ouvertes }}</strong></div></div>
+  <div class="col-md-4"><div class="metric-card"><span>Résolues</span><strong>{{ resolues }}</strong></div></div>
+</div>
+<div class="card border-0 shadow-sm"><div class="card-header bg-white"><strong>Anomalies récentes</strong></div><div class="table-responsive"><table class="table mb-0 align-middle">
+<thead><tr><th>Envoi</th><th>Niveau</th><th>Écart</th><th>Système</th><th>Statut</th><th></th></tr></thead><tbody>
+{% for a in recentes %}<tr><td>{{ a.code_envoi }}</td><td>{{ a.niveau }}</td><td>{{ a.type_ecart }}</td><td>{{ a.systeme_ecart|default:'-' }}</td><td><span class="badge text-bg-secondary">{{ a.statut }}</span></td><td><a href="{% url 'anomaly_detail' a.pk %}">Ouvrir</a></td></tr>{% empty %}<tr><td colspan="6" class="text-muted">Aucune anomalie détectée.</td></tr>{% endfor %}
+</tbody></table></div></div>
+{% endblock %}
