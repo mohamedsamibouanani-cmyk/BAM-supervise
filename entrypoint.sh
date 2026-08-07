@@ -1,6 +1,5 @@
 #!/bin/sh
 set -e
-python manage.py makemigrations supervision --noinput
 python manage.py migrate --noinput
 python manage.py seed_bam
 python manage.py ensure_supervisor
