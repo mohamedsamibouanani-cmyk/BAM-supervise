@@ -42,12 +42,7 @@ def import_excel(uploaded_file, systeme, superviseur):
     if FichierImport.objects.filter(systeme=systeme, checksum_sha256=checksum).exists():
         raise ImportValidationError(f'Ce fichier {systeme.code_systeme} a déjà été importé.')
 
-    # Parse only from memory. The original source is persisted encrypted at rest.
-    try:
-        df = _normalize_columns(pd.read_excel(BytesIO(raw), dtype=str))
-    except Exception as exc:
-        raise ImportValidationError(f'Classeur Excel illisible ou non supporté: {exc}') from exc
-
+    # Persist only an encrypted copy of the original source file.
     target_dir = Path(settings.MEDIA_ROOT) / 'imports' / systeme.code_systeme
     target_dir.mkdir(parents=True, exist_ok=True)
     safe_name = Path(uploaded_file.name).name
@@ -63,6 +58,12 @@ def import_excel(uploaded_file, systeme, superviseur):
         statut_import=FichierImport.Statut.RECU,
     )
     try:
+        # Parse from memory so plaintext is never persisted in the media volume.
+        try:
+            df = _normalize_columns(pd.read_excel(BytesIO(raw), dtype=str))
+        except Exception as exc:
+            raise ImportValidationError(f'Classeur Excel illisible ou non supporté: {exc}') from exc
+
         missing = REQUIRED_COLUMNS - set(df.columns)
         if missing:
             raise ImportValidationError(f'Colonnes obligatoires manquantes: {", ".join(sorted(missing))}')
