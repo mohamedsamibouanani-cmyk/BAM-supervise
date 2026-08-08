@@ -1,2 +1,23 @@
 {% extends 'supervision/base.html' %}
-{% block content %}<div class="row justify-content-center"><div class="col-lg-6"><div class="card border-0 shadow-sm"><div class="card-body p-4"><h1 class="h4">Ajouter un collaborateur</h1><p class="text-muted">Groupe {{ group.nom_groupe }} · système {{ group.systeme.code_systeme }}</p><form method="post">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary">Ajouter l’adresse e-mail</button></form></div></div></div></div>{% endblock %}
+{% block title %}Ajouter un collaborateur · BAM Supervise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-eyebrow"><a href="{% url 'group_list' %}"><i class="bi bi-arrow-left"></i> Groupes responsables</a></div>
+    <h1 class="page-title">Ajouter un collaborateur</h1>
+    <p class="page-subtitle">Le contact sera rattaché au groupe {{ group.nom_groupe }} du système {{ group.systeme.code_systeme }}.</p>
+  </div>
+</div>
+<div class="row justify-content-center">
+  <div class="col-xl-7 col-lg-8">
+    <section class="panel">
+      <div class="panel-header"><div><h2 class="panel-title">Coordonnées du destinataire</h2><p class="panel-subtitle">Cette personne ne reçoit pas de compte applicatif</p></div><span class="system-badge">{{ group.systeme.code_systeme }}</span></div>
+      <div class="panel-body">
+        <form method="post">{% csrf_token %}{{ form.as_p }}
+          <div class="d-flex justify-content-end gap-2 pt-2"><a class="btn btn-light" href="{% url 'group_list' %}">Annuler</a><button class="btn btn-primary" type="submit"><i class="bi bi-person-plus me-1"></i> Ajouter l’adresse</button></div>
+        </form>
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}
