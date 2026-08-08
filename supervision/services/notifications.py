@@ -66,7 +66,6 @@ def build_email(validation, group):
     return subject, body
 
 
-@transaction.atomic
 def send_validation_email(validation):
     group = route_group(validation)
     contacts = list(group.contacts.filter(actif=True))
@@ -77,18 +76,30 @@ def send_validation_email(validation):
         raise RoutingError('Le groupe responsable ne possède aucune adresse e-mail active.')
 
     subject, body = build_email(validation, group)
-    notification = Notification.objects.create(validation=validation, groupe=group, objet=subject, message=body)
-    rows = []
-    for c in contacts:
-        rows.append(NotificationDestinataire.objects.create(
-            notification=notification, contact=c, nom_snapshot=c.nom_complet,
-            email_snapshot=c.email,
-        ))
-    if group.email_collectif:
-        rows.append(NotificationDestinataire.objects.create(
-            notification=notification, nom_snapshot=group.nom_groupe,
-            email_snapshot=group.email_collectif,
-        ))
+
+    # Persist notification intent and recipient snapshots atomically. The SMTP call is
+    # deliberately outside this transaction so a delivery failure remains auditable.
+    with transaction.atomic():
+        notification = Notification.objects.create(
+            validation=validation,
+            groupe=group,
+            objet=subject,
+            message=body,
+        )
+        rows = []
+        for c in contacts:
+            rows.append(NotificationDestinataire.objects.create(
+                notification=notification,
+                contact=c,
+                nom_snapshot=c.nom_complet,
+                email_snapshot=c.email,
+            ))
+        if group.email_collectif:
+            rows.append(NotificationDestinataire.objects.create(
+                notification=notification,
+                nom_snapshot=group.nom_groupe,
+                email_snapshot=group.email_collectif,
+            ))
 
     notification.nb_tentatives += 1
     try:
@@ -105,30 +116,37 @@ def send_validation_email(validation):
             raise RuntimeError("Le backend e-mail n'a pas confirmé l'envoi du message.")
 
         now = timezone.now()
-        notification.statut = Notification.Statut.ENVOYEE
-        notification.envoyee_le = now
-        notification.erreur = ''
-        notification.save(update_fields=['nb_tentatives', 'statut', 'envoyee_le', 'erreur'])
-        for row in rows:
-            row.statut_livraison = NotificationDestinataire.Statut.ENVOYE
-            row.envoyee_le = now
-            row.save(update_fields=['statut_livraison', 'envoyee_le'])
-        anomaly = validation.anomalie
-        old = anomaly.statut
-        anomaly.statut = Anomalie.Statut.NOTIFIEE
-        anomaly.save(update_fields=['statut'])
-        HistoriqueAnomalie.objects.create(
-            anomalie=anomaly, ancien_statut=old, nouveau_statut=Anomalie.Statut.NOTIFIEE,
-            source_evenement='MAIL', superviseur=validation.superviseur,
-            commentaire=f'E-mail envoyé au groupe {group.nom_groupe}.'
-        )
+        with transaction.atomic():
+            notification.statut = Notification.Statut.ENVOYEE
+            notification.envoyee_le = now
+            notification.erreur = ''
+            notification.save(update_fields=['nb_tentatives', 'statut', 'envoyee_le', 'erreur'])
+            for row in rows:
+                row.statut_livraison = NotificationDestinataire.Statut.ENVOYE
+                row.envoyee_le = now
+                row.save(update_fields=['statut_livraison', 'envoyee_le'])
+            anomaly = validation.anomalie
+            old = anomaly.statut
+            anomaly.statut = Anomalie.Statut.NOTIFIEE
+            anomaly.save(update_fields=['statut'])
+            HistoriqueAnomalie.objects.create(
+                anomalie=anomaly,
+                ancien_statut=old,
+                nouveau_statut=Anomalie.Statut.NOTIFIEE,
+                source_evenement='MAIL',
+                superviseur=validation.superviseur,
+                commentaire=f'E-mail envoyé au groupe {group.nom_groupe}.',
+            )
         return notification
     except Exception as exc:
-        notification.statut = Notification.Statut.ECHEC
-        notification.erreur = str(exc)
-        notification.save(update_fields=['nb_tentatives', 'statut', 'erreur'])
-        for row in rows:
-            row.statut_livraison = NotificationDestinataire.Statut.ECHEC
-            row.erreur = str(exc)[:500]
-            row.save(update_fields=['statut_livraison', 'erreur'])
+        # Failure status must survive the raised exception so the UI can display it
+        # and the supervisor can retry later.
+        with transaction.atomic():
+            notification.statut = Notification.Statut.ECHEC
+            notification.erreur = str(exc)[:2000]
+            notification.save(update_fields=['nb_tentatives', 'statut', 'erreur'])
+            for row in rows:
+                row.statut_livraison = NotificationDestinataire.Statut.ECHEC
+                row.erreur = str(exc)[:500]
+                row.save(update_fields=['statut_livraison', 'erreur'])
         raise
