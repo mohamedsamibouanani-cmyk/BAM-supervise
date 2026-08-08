@@ -73,7 +73,14 @@ def send_validation_email(validation):
 
     notification.nb_tentatives += 1
     try:
-        EmailMessage(subject, body, settings.DEFAULT_FROM_EMAIL, emails).send(fail_silently=False)
+        reply_to = [settings.EMAIL_REPLY_TO] if settings.EMAIL_REPLY_TO else None
+        EmailMessage(
+            subject=subject,
+            body=body,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=emails,
+            reply_to=reply_to,
+        ).send(fail_silently=False)
         now = timezone.now()
         notification.statut = Notification.Statut.ENVOYEE
         notification.envoyee_le = now
