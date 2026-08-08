@@ -1,0 +1,69 @@
+{% extends 'supervision/base.html' %}
+{% block title %}Activités · BAM Supervise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-eyebrow"><i class="bi bi-shield-check"></i> Gouvernance</div>
+    <h1 class="page-title">Journal des activités</h1>
+    <p class="page-subtitle">Traçabilité des actions sensibles réalisées dans BAM Supervise : campagnes, validations, gestion des collaborateurs et opérations de gouvernance.</p>
+  </div>
+  <div class="page-actions">
+    <span class="system-badge"><i class="bi bi-journal-check me-1"></i>{{ total_audit }} événement{{ total_audit|pluralize }}</span>
+  </div>
+</div>
+
+<form class="filter-bar" method="get">
+  <div class="filter-field search">
+    <label class="form-label">Recherche</label>
+    <input class="form-control" type="search" name="q" value="{{ filters.q }}" placeholder="Action, entité ou identifiant">
+  </div>
+  <div class="filter-field">
+    <label class="form-label">Action</label>
+    <select class="form-select" name="action">
+      <option value="">Toutes</option>
+      {% for value in actions %}<option value="{{ value }}" {% if filters.action == value %}selected{% endif %}>{{ value }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-field">
+    <label class="form-label">Entité</label>
+    <select class="form-select" name="entite">
+      <option value="">Toutes</option>
+      {% for value in entities %}<option value="{{ value }}" {% if filters.entite == value %}selected{% endif %}>{{ value }}</option>{% endfor %}
+    </select>
+  </div>
+  <div><button class="btn btn-light"><i class="bi bi-funnel me-1"></i>Filtrer</button></div>
+  {% if filters.q or filters.action or filters.entite %}<div><a class="btn btn-link" href="{% url 'activity_list' %}">Réinitialiser</a></div>{% endif %}
+</form>
+
+<section class="panel">
+  <div class="panel-header">
+    <div><h2 class="panel-title">Historique d'audit</h2><p class="panel-subtitle">Consultation uniquement — les événements sont écrits par les opérations métier.</p></div>
+  </div>
+  {% if activities %}
+  <div class="table-wrap">
+    <table class="table table-hover">
+      <thead><tr><th>Date</th><th>Action</th><th>Entité</th><th>ID</th><th>Superviseur</th><th>Adresse IP</th><th>Évolution</th></tr></thead>
+      <tbody>
+      {% for a in activities %}
+        <tr>
+          <td>{{ a.cree_le|date:'d/m/Y' }}<div class="text-secondary mt-1" style="font-size:10px">{{ a.cree_le|date:'H:i:s' }}</div></td>
+          <td><span class="status-badge status-ANALYSEE">{{ a.action }}</span></td>
+          <td><span class="code">{{ a.entite }}</span></td>
+          <td>#{{ a.id_entite }}</td>
+          <td>{{ a.superviseur.nom_complet|default:a.superviseur.username|default:'Système' }}</td>
+          <td>{{ a.adresse_ip|default:'—' }}</td>
+          <td style="min-width:260px">
+            {% if a.anciennes_valeurs %}<div class="small text-secondary"><strong>Avant :</strong> {{ a.anciennes_valeurs }}</div>{% endif %}
+            {% if a.nouvelles_valeurs %}<div class="small"><strong>Après :</strong> {{ a.nouvelles_valeurs }}</div>{% endif %}
+            {% if not a.anciennes_valeurs and not a.nouvelles_valeurs %}<span class="text-secondary">—</span>{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state"><div class="empty-icon"><i class="bi bi-journal"></i></div><h3>Aucune activité trouvée</h3><p>Les actions de supervision apparaîtront ici dès qu'elles seront journalisées.</p></div>
+  {% endif %}
+</section>
+{% endblock %}
