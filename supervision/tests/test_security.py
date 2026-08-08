@@ -83,7 +83,11 @@ class ApplicationSecurityTests(TestCase):
         self.client.force_login(self.user)
         response = self.client.get(reverse('dashboard'))
         self.assertEqual(response.status_code, 200)
-        self.assertIn("default-src 'self'", response.headers['Content-Security-Policy'])
+        csp = response.headers['Content-Security-Policy']
+        self.assertIn("default-src 'self'", csp)
+        self.assertIn("script-src 'self'", csp)
+        self.assertNotIn("script-src 'self' 'unsafe-inline'", csp)
+        self.assertIn("object-src 'none'", csp)
         self.assertEqual(response.headers['X-Frame-Options'], 'DENY')
         self.assertEqual(response.headers['X-Content-Type-Options'], 'nosniff')
         self.assertEqual(response.headers['Referrer-Policy'], 'same-origin')
