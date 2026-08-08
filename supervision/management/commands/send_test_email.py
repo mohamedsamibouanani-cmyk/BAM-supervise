@@ -16,6 +16,13 @@ PLACEHOLDER_DOMAINS = {
     'votre-domaine-bam.ma',
 }
 
+SIMULATED_EMAIL_BACKENDS = {
+    'django.core.mail.backends.console.EmailBackend',
+    'django.core.mail.backends.locmem.EmailBackend',
+    'django.core.mail.backends.dummy.EmailBackend',
+    'django.core.mail.backends.filebased.EmailBackend',
+}
+
 
 class Command(BaseCommand):
     help = 'Envoie un e-mail de test avec l’identité professionnelle configurée pour BAM Supervise.'
@@ -30,9 +37,11 @@ class Command(BaseCommand):
         except ValidationError as exc:
             raise CommandError('Adresse destinataire invalide.') from exc
 
-        if settings.EMAIL_BACKEND.endswith('console.EmailBackend'):
+        if settings.EMAIL_BACKEND in SIMULATED_EMAIL_BACKENDS and not getattr(
+            settings, 'EMAIL_ALLOW_SIMULATED_DELIVERY', False
+        ):
             raise CommandError(
-                'EMAIL_BACKEND utilise encore le backend console. Configurez un serveur SMTP réel dans .env.'
+                'La messagerie utilise encore un backend de test. Configurez un serveur SMTP réel dans .env.'
             )
 
         sender = parseaddr(settings.DEFAULT_FROM_EMAIL)[1]
