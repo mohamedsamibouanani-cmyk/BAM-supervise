@@ -1,6 +1,9 @@
 from django.test import SimpleTestCase, override_settings
 
-from supervision.services.security import decrypt_sensitive, encrypt_sensitive, sensitive_fingerprint
+from supervision.services.security import (
+    decrypt_file_bytes, decrypt_sensitive, encrypt_file_bytes, encrypt_sensitive,
+    sensitive_fingerprint,
+)
 
 
 @override_settings(BAM_DATA_ENCRYPTION_KEY='unit-test-data-protection-key')
@@ -25,3 +28,10 @@ class SensitiveDataProtectionTests(SimpleTestCase):
             sensitive_fingerprint('+212600000000'),
             sensitive_fingerprint('+212611111111'),
         )
+
+    def test_imported_source_file_bytes_are_encrypted_at_rest(self):
+        source = b'PK\x03\x04fake-xlsx-payload-with-sensitive-data'
+        encrypted = encrypt_file_bytes(source)
+        self.assertTrue(encrypted.startswith(b'bamfile:v1:'))
+        self.assertNotIn(source, encrypted)
+        self.assertEqual(decrypt_file_bytes(encrypted), source)
