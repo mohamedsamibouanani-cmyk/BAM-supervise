@@ -1,3 +1,4 @@
+from io import BytesIO
 from pathlib import Path
 from decimal import Decimal, InvalidOperation
 import pandas as pd
@@ -8,7 +9,7 @@ from supervision.models import (
     AttributDefinition, EnvoiSnapshot, FichierImport, ServiceReference,
     ServiceSnapshot, ValeurAttributSnapshot,
 )
-from .security import encrypt_sensitive, sensitive_fingerprint
+from .security import encrypt_file_bytes, encrypt_sensitive, sensitive_fingerprint
 from .utils import clean_text, infer_attribute_scope, infer_attribute_type, normalize_value, sha256_bytes, stable_hash
 
 STRUCTURAL_COLUMNS = {'CODE_ENVOI', 'NUM_COMMANDE', 'ARTICLE', 'DES_ARTICLE', 'ORG_COMMERCIALE', 'DATE_COMMANDE'}
@@ -41,11 +42,17 @@ def import_excel(uploaded_file, systeme, superviseur):
     if FichierImport.objects.filter(systeme=systeme, checksum_sha256=checksum).exists():
         raise ImportValidationError(f'Ce fichier {systeme.code_systeme} a déjà été importé.')
 
+    # Parse only from memory. The original source is persisted encrypted at rest.
+    try:
+        df = _normalize_columns(pd.read_excel(BytesIO(raw), dtype=str))
+    except Exception as exc:
+        raise ImportValidationError(f'Classeur Excel illisible ou non supporté: {exc}') from exc
+
     target_dir = Path(settings.MEDIA_ROOT) / 'imports' / systeme.code_systeme
     target_dir.mkdir(parents=True, exist_ok=True)
     safe_name = Path(uploaded_file.name).name
-    stored_path = target_dir / f'{checksum[:12]}_{safe_name}'
-    stored_path.write_bytes(raw)
+    stored_path = target_dir / f'{checksum[:12]}_{safe_name}.enc'
+    stored_path.write_bytes(encrypt_file_bytes(raw))
 
     fichier = FichierImport.objects.create(
         systeme=systeme,
@@ -56,7 +63,6 @@ def import_excel(uploaded_file, systeme, superviseur):
         statut_import=FichierImport.Statut.RECU,
     )
     try:
-        df = _normalize_columns(pd.read_excel(stored_path, dtype=str))
         missing = REQUIRED_COLUMNS - set(df.columns)
         if missing:
             raise ImportValidationError(f'Colonnes obligatoires manquantes: {", ".join(sorted(missing))}')
