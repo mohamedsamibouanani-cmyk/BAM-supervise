@@ -1,2 +1,49 @@
 {% extends 'supervision/base.html' %}
-{% block content %}<div class="row justify-content-center"><div class="col-lg-7"><div class="card border-0 shadow-sm"><div class="card-body p-4"><h1 class="h4">Validation du motif</h1><p class="text-muted">Envoi {{ anomaly.code_envoi }} · {{ anomaly.niveau }} {{ anomaly.type_ecart }}</p><form method="post">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary">Valider et envoyer l’e-mail</button><a class="btn btn-link" href="{% url 'anomaly_detail' anomaly.pk %}">Annuler</a></form></div></div></div></div>{% endblock %}
+{% block title %}Validation du motif · BAM Supervise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-eyebrow"><a href="{% url 'anomaly_detail' anomaly.pk %}"><i class="bi bi-arrow-left"></i> Dossier #{{ anomaly.pk }}</a></div>
+    <h1 class="page-title">Validation du motif</h1>
+    <p class="page-subtitle">La proposition du système n’est pas une décision finale. Confirmez ou remplacez le motif et le système à corriger avant le routage de l’e-mail.</p>
+  </div>
+</div>
+
+<div class="row g-3 justify-content-center">
+  <div class="col-xl-8">
+    <section class="panel">
+      <div class="panel-header">
+        <div><h2 class="panel-title">Décision du superviseur</h2><p class="panel-subtitle">Envoi {{ anomaly.code_envoi }} · {{ anomaly.get_niveau_display }} · {{ anomaly.get_type_ecart_display }}</p></div>
+        <span class="status-badge status-{{ anomaly.statut }}">{{ anomaly.get_statut_display }}</span>
+      </div>
+      <div class="panel-body">
+        <form method="post">{% csrf_token %}
+          {% if form.non_field_errors %}<div class="alert alert-danger">{{ form.non_field_errors }}</div>{% endif %}
+          <div class="row g-3">
+            <div class="col-12"><label class="form-label" for="{{ form.prediction.id_for_label }}">Proposition retenue</label>{{ form.prediction }}{% if form.prediction.errors %}<div class="text-danger small mt-1">{{ form.prediction.errors }}</div>{% endif %}<div class="text-secondary mt-1" style="font-size:10px">Choisissez une proposition existante ou modifiez directement le motif ci-dessous.</div></div>
+            <div class="col-md-6"><label class="form-label" for="{{ form.motif_final.id_for_label }}">Motif final</label>{{ form.motif_final }}{% if form.motif_final.errors %}<div class="text-danger small mt-1">{{ form.motif_final.errors }}</div>{% endif %}</div>
+            <div class="col-md-6"><label class="form-label" for="{{ form.systeme_a_corriger_final.id_for_label }}">Système à corriger</label>{{ form.systeme_a_corriger_final }}{% if form.systeme_a_corriger_final.errors %}<div class="text-danger small mt-1">{{ form.systeme_a_corriger_final.errors }}</div>{% endif %}</div>
+            <div class="col-md-6"><label class="form-label" for="{{ form.decision.id_for_label }}">Type de décision</label>{{ form.decision }}{% if form.decision.errors %}<div class="text-danger small mt-1">{{ form.decision.errors }}</div>{% endif %}</div>
+            <div class="col-12"><label class="form-label" for="{{ form.commentaire.id_for_label }}">Commentaire</label>{{ form.commentaire }}{% if form.commentaire.errors %}<div class="text-danger small mt-1">{{ form.commentaire.errors }}</div>{% endif %}</div>
+          </div>
+          <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mt-4 pt-3 border-top">
+            <div class="text-secondary" style="font-size:11px"><i class="bi bi-envelope-check me-1"></i> Après validation, BAM Supervise applique motif + système à corriger → groupe responsable.</div>
+            <div class="d-flex gap-2"><a class="btn btn-light" href="{% url 'anomaly_detail' anomaly.pk %}">Annuler</a><button class="btn btn-primary" type="submit"><i class="bi bi-check2-square me-1"></i> Valider et notifier</button></div>
+          </div>
+        </form>
+      </div>
+    </section>
+  </div>
+  <div class="col-xl-4">
+    <section class="panel">
+      <div class="panel-header"><div><h2 class="panel-title">Rappel du workflow</h2><p class="panel-subtitle">Décision avant action</p></div></div>
+      <div class="panel-body quick-list">
+        <div class="quick-row"><span class="quick-icon"><i class="bi bi-lightbulb"></i></span><div class="quick-copy"><strong>1 · Proposition</strong><small>Le moteur explique l’écart avec une ou plusieurs hypothèses.</small></div></div>
+        <div class="quick-row"><span class="quick-icon"><i class="bi bi-person-check"></i></span><div class="quick-copy"><strong>2 · Validation</strong><small>Vous acceptez, modifiez ou déclarez le motif inconnu.</small></div></div>
+        <div class="quick-row"><span class="quick-icon"><i class="bi bi-diagram-3"></i></span><div class="quick-copy"><strong>3 · Affectation</strong><small>Motif final + système final déterminent le groupe.</small></div></div>
+        <div class="quick-row"><span class="quick-icon"><i class="bi bi-envelope-paper"></i></span><div class="quick-copy"><strong>4 · Notification</strong><small>L’e-mail est envoyé aux contacts du groupe responsable.</small></div></div>
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}
