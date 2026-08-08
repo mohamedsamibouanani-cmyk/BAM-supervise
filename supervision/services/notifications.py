@@ -13,6 +13,25 @@ class RoutingError(ValueError):
     pass
 
 
+SIMULATED_EMAIL_BACKENDS = {
+    'django.core.mail.backends.console.EmailBackend',
+    'django.core.mail.backends.locmem.EmailBackend',
+    'django.core.mail.backends.dummy.EmailBackend',
+    'django.core.mail.backends.filebased.EmailBackend',
+}
+
+
+def _ensure_real_delivery_backend():
+    """Prevent a simulated backend from being recorded as a real delivered notification."""
+    if settings.EMAIL_BACKEND in SIMULATED_EMAIL_BACKENDS and not getattr(
+        settings, 'EMAIL_ALLOW_SIMULATED_DELIVERY', False
+    ):
+        raise RoutingError(
+            'La messagerie est encore en mode test. Configurez un serveur SMTP réel '
+            'pour envoyer des notifications aux collaborateurs.'
+        )
+
+
 def route_group(validation):
     rule = RegleAffectation.objects.filter(
         systeme_a_corriger=validation.systeme_a_corriger_final,
@@ -73,14 +92,18 @@ def send_validation_email(validation):
 
     notification.nb_tentatives += 1
     try:
+        _ensure_real_delivery_backend()
         reply_to = [settings.EMAIL_REPLY_TO] if settings.EMAIL_REPLY_TO else None
-        EmailMessage(
+        sent = EmailMessage(
             subject=subject,
             body=body,
             from_email=settings.DEFAULT_FROM_EMAIL,
             to=emails,
             reply_to=reply_to,
         ).send(fail_silently=False)
+        if sent != 1:
+            raise RuntimeError("Le backend e-mail n'a pas confirmé l'envoi du message.")
+
         now = timezone.now()
         notification.statut = Notification.Statut.ENVOYEE
         notification.envoyee_le = now
