@@ -3,9 +3,18 @@ from .models import ContactGroupe, Motif, PredictionMotif, Systeme
 
 
 class CampaignImportForm(forms.Form):
-    fichier_smi = forms.FileField(label='Fichier SMI (.xlsx)')
-    fichier_sicom = forms.FileField(label='Fichier SICOM (.xlsx)')
-    fichier_sibo = forms.FileField(label='Fichier SIBO (.xlsx)')
+    fichier_smi = forms.FileField(
+        label='Fichier SMI (.xlsx)',
+        widget=forms.ClearableFileInput(attrs={'class': 'form-control', 'accept': '.xlsx,.xls'}),
+    )
+    fichier_sicom = forms.FileField(
+        label='Fichier SICOM (.xlsx)',
+        widget=forms.ClearableFileInput(attrs={'class': 'form-control', 'accept': '.xlsx,.xls'}),
+    )
+    fichier_sibo = forms.FileField(
+        label='Fichier SIBO (.xlsx)',
+        widget=forms.ClearableFileInput(attrs={'class': 'form-control', 'accept': '.xlsx,.xls'}),
+    )
 
     def clean(self):
         cleaned = super().clean()
@@ -17,11 +26,26 @@ class CampaignImportForm(forms.Form):
 
 
 class ValidationMotifForm(forms.Form):
-    prediction = forms.ModelChoiceField(queryset=PredictionMotif.objects.none(), required=False, label='Proposition retenue')
-    motif_final = forms.ModelChoiceField(queryset=Motif.objects.filter(actif=True), required=False, label='Motif final')
-    systeme_a_corriger_final = forms.ModelChoiceField(queryset=Systeme.objects.filter(actif=True), label='Système à corriger')
-    decision = forms.ChoiceField(choices=[('ACCEPTE', 'Accepter'), ('MODIFIE', 'Modifier'), ('INCONNU', 'Motif inconnu')])
-    commentaire = forms.CharField(widget=forms.Textarea(attrs={'rows': 3}), required=False)
+    prediction = forms.ModelChoiceField(
+        queryset=PredictionMotif.objects.none(), required=False, label='Proposition retenue',
+        widget=forms.Select(attrs={'class': 'form-select'}),
+    )
+    motif_final = forms.ModelChoiceField(
+        queryset=Motif.objects.filter(actif=True), required=False, label='Motif final',
+        widget=forms.Select(attrs={'class': 'form-select'}),
+    )
+    systeme_a_corriger_final = forms.ModelChoiceField(
+        queryset=Systeme.objects.filter(actif=True), label='Système à corriger',
+        widget=forms.Select(attrs={'class': 'form-select'}),
+    )
+    decision = forms.ChoiceField(
+        choices=[('ACCEPTE', 'Accepter'), ('MODIFIE', 'Modifier'), ('INCONNU', 'Motif inconnu')],
+        widget=forms.Select(attrs={'class': 'form-select'}),
+    )
+    commentaire = forms.CharField(
+        widget=forms.Textarea(attrs={'rows': 4, 'class': 'form-control', 'placeholder': 'Justification ou précision métier (facultatif)'}),
+        required=False,
+    )
 
     def __init__(self, anomaly, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -56,4 +80,9 @@ class ContactGroupeForm(forms.ModelForm):
     class Meta:
         model = ContactGroupe
         fields = ['nom_complet', 'email', 'fonction', 'actif']
-        widgets = {'nom_complet': forms.TextInput(attrs={'placeholder': 'Nom du collaborateur'})}
+        widgets = {
+            'nom_complet': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Nom du collaborateur'}),
+            'email': forms.EmailInput(attrs={'class': 'form-control', 'placeholder': 'prenom.nom@example.ma'}),
+            'fonction': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Fonction ou spécialité'}),
+            'actif': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        }
