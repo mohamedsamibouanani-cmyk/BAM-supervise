@@ -11,4 +11,5 @@ urlpatterns = [
     path('notifications/', views.notification_list, name='notification_list'),
     path('groupes/', views.group_list, name='group_list'),
     path('groupes/<int:group_id>/contacts/ajouter/', views.contact_add, name='contact_add'),
+    path('contacts/<int:contact_id>/modifier/', views.contact_edit, name='contact_edit'),
 ]
