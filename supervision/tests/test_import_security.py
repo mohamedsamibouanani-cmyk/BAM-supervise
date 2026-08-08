@@ -3,6 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
 from django.test import TestCase, override_settings
 from openpyxl import Workbook
 
@@ -66,3 +67,25 @@ class SecureImportTests(TestCase):
         stored = Path(record.chemin_stockage).read_bytes()
         self.assertTrue(stored.startswith(b'bamfile:v1:'))
         self.assertEqual(decrypt_file_bytes(stored), raw)
+
+    def test_legacy_plaintext_import_file_is_upgraded_to_encrypted_storage(self):
+        raw = b'legacy-plaintext-excel-payload'
+        legacy_path = Path(self.tmp.name) / 'legacy.xlsx'
+        legacy_path.write_bytes(raw)
+        record = FichierImport.objects.create(
+            systeme=self.system,
+            superviseur=self.user,
+            nom_fichier='legacy.xlsx',
+            chemin_stockage=str(legacy_path),
+            checksum_sha256='f' * 64,
+            statut_import=FichierImport.Statut.CHARGE,
+        )
+
+        call_command('protect_sensitive_data')
+        record.refresh_from_db()
+        upgraded_path = Path(record.chemin_stockage)
+        self.assertEqual(upgraded_path.suffix, '.enc')
+        self.assertFalse(legacy_path.exists())
+        encrypted = upgraded_path.read_bytes()
+        self.assertTrue(encrypted.startswith(b'bamfile:v1:'))
+        self.assertEqual(decrypt_file_bytes(encrypted), raw)
