@@ -1,6 +1,7 @@
 {% extends 'supervision/base.html' %}
+{% load static %}
 {% block title %}Tableau de bord · BAM Supervise{% endblock %}
-{% block head %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>{% endblock %}
+{% block head %}<script src="{% static 'vendor/chart/chart.umd.min.js' %}"></script>{% endblock %}
 {% block content %}
 <div class="page-header">
   <div>
