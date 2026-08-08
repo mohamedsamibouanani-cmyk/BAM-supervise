@@ -1,13 +1,18 @@
+from datetime import timedelta
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
-from django.db.models import Count
+from django.db.models import Count, Q
+from django.db.models.functions import TruncDate
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 
 from .forms import CampaignImportForm, ContactGroupeForm, ValidationMotifForm
 from .models import (
     Anomalie, CampagneImport, CampagneSupervision, ExempleApprentissage,
-    GroupeResponsable, HistoriqueAnomalie, JournalAudit, Systeme, ValidationMotif,
+    GroupeResponsable, HistoriqueAnomalie, JournalAudit, Notification, Systeme,
+    ValidationMotif,
 )
 from .services.comparison import run_campaign
 from .services.importer import import_excel
@@ -28,15 +33,78 @@ def _audit(request, action, entity, entity_id, new_values=None):
 
 @login_required
 def dashboard(request):
+    anomalies = Anomalie.objects.all()
+    total = anomalies.count()
+    resolues = anomalies.filter(statut=Anomalie.Statut.RESOLUE).count()
+    ouvertes = anomalies.exclude(statut=Anomalie.Statut.RESOLUE).count()
+    critiques = anomalies.exclude(statut=Anomalie.Statut.RESOLUE).filter(gravite=Anomalie.Gravite.CRITIQUE).count()
+    a_valider = anomalies.filter(statut__in=[Anomalie.Statut.DETECTEE, Anomalie.Statut.ANALYSEE]).count()
+    taux_resolution = round((resolues / total * 100), 1) if total else 0
+
+    level_counts = {row['niveau']: row['total'] for row in anomalies.values('niveau').annotate(total=Count('id'))}
+    system_counts = {
+        row['systeme_ecart__code_systeme']: row['total']
+        for row in anomalies.exclude(systeme_ecart__isnull=True)
+        .values('systeme_ecart__code_systeme').annotate(total=Count('id'))
+    }
+
+    today = timezone.localdate()
+    first_day = today - timedelta(days=6)
+    trend_rows = (
+        anomalies.filter(detectee_le__date__gte=first_day)
+        .annotate(day=TruncDate('detectee_le'))
+        .values('day').annotate(total=Count('id')).order_by('day')
+    )
+    trend_map = {row['day']: row['total'] for row in trend_rows}
+    trend_days = [first_day + timedelta(days=i) for i in range(7)]
+
+    dashboard_data = {
+        'trend': {
+            'labels': [day.strftime('%d/%m') for day in trend_days],
+            'values': [trend_map.get(day, 0) for day in trend_days],
+        },
+        'levels': {
+            'labels': ['Envoi', 'Service', 'Attribut'],
+            'values': [level_counts.get('ENVOI', 0), level_counts.get('SERVICE', 0), level_counts.get('ATTRIBUT', 0)],
+        },
+        'systems': {
+            'labels': ['SMI', 'SICOM', 'SIBO'],
+            'values': [system_counts.get('SMI', 0), system_counts.get('SICOM', 0), system_counts.get('SIBO', 0)],
+        },
+    }
+
+    latest_campaign = CampagneSupervision.objects.order_by('-demarree_le').first()
     context = {
-        'total': Anomalie.objects.count(),
-        'ouvertes': Anomalie.objects.exclude(statut=Anomalie.Statut.RESOLUE).count(),
-        'resolues': Anomalie.objects.filter(statut=Anomalie.Statut.RESOLUE).count(),
-        'par_niveau': Anomalie.objects.values('niveau').annotate(total=Count('id')).order_by('niveau'),
+        'total': total,
+        'ouvertes': ouvertes,
+        'resolues': resolues,
+        'critiques': critiques,
+        'a_valider': a_valider,
+        'taux_resolution': taux_resolution,
         'campagnes': CampagneSupervision.objects.order_by('-demarree_le')[:5],
-        'recentes': Anomalie.objects.select_related('systeme_ecart', 'attribut').order_by('-detectee_le')[:10],
+        'latest_campaign': latest_campaign,
+        'recentes': anomalies.select_related('systeme_ecart', 'attribut').order_by('-detectee_le')[:8],
+        'notifications_envoyees': Notification.objects.filter(statut=Notification.Statut.ENVOYEE).count(),
+        'notifications_echec': Notification.objects.filter(statut=Notification.Statut.ECHEC).count(),
+        'dashboard_data': dashboard_data,
     }
     return render(request, 'supervision/dashboard.html', context)
+
+
+@login_required
+def campaign_list(request):
+    qs = (
+        CampagneSupervision.objects.annotate(
+            import_count=Count('imports', distinct=True),
+            anomaly_count=Count('anomalies', distinct=True),
+        )
+        .select_related('superviseur')
+        .order_by('-demarree_le')
+    )
+    statut = request.GET.get('statut', '').strip()
+    if statut:
+        qs = qs.filter(statut=statut)
+    return render(request, 'supervision/campaign_list.html', {'campagnes': qs[:250], 'statut': statut})
 
 
 @login_required
@@ -72,23 +140,63 @@ def campaign_create(request):
 @login_required
 def anomaly_list(request):
     qs = Anomalie.objects.select_related('systeme_ecart', 'attribut', 'campagne').order_by('-detectee_le')
-    for field in ('niveau', 'type_ecart', 'statut'):
-        value = request.GET.get(field)
+    for field in ('niveau', 'type_ecart', 'statut', 'gravite'):
+        value = request.GET.get(field, '').strip()
         if value:
             qs = qs.filter(**{field: value})
-    system = request.GET.get('systeme')
+    system = request.GET.get('systeme', '').strip()
     if system:
         qs = qs.filter(systeme_ecart__code_systeme=system)
-    return render(request, 'supervision/anomaly_list.html', {'anomalies': qs[:500], 'systems': Systeme.objects.all()})
+    search = request.GET.get('q', '').strip()
+    if search:
+        qs = qs.filter(
+            Q(code_envoi__icontains=search)
+            | Q(code_service__icontains=search)
+            | Q(attribut__code_attribut__icontains=search)
+        )
+
+    filtered_total = qs.count()
+    filtered_open = qs.exclude(statut=Anomalie.Statut.RESOLUE).count()
+    filtered_critical = qs.filter(gravite=Anomalie.Gravite.CRITIQUE).count()
+    context = {
+        'anomalies': qs[:500],
+        'systems': Systeme.objects.all(),
+        'filtered_total': filtered_total,
+        'filtered_open': filtered_open,
+        'filtered_critical': filtered_critical,
+        'filters': request.GET,
+    }
+    return render(request, 'supervision/anomaly_list.html', context)
 
 
 @login_required
 def anomaly_detail(request, pk):
     anomaly = get_object_or_404(
-        Anomalie.objects.select_related('systeme_ecart', 'attribut', 'campagne').prefetch_related('details__systeme', 'predictions__motif', 'validations__motif_final'),
+        Anomalie.objects.select_related('systeme_ecart', 'attribut', 'campagne').prefetch_related(
+            'details__systeme',
+            'predictions__motif',
+            'predictions__systeme_a_corriger_predit',
+            'validations__motif_final',
+            'validations__systeme_a_corriger_final',
+            'historique',
+            'verifications__campagne_controle',
+        ),
         pk=pk,
     )
-    return render(request, 'supervision/anomaly_detail.html', {'anomaly': anomaly})
+    latest_validation = (
+        anomaly.validations.filter(est_finale=True)
+        .select_related('motif_final', 'systeme_a_corriger_final', 'prediction_retenue')
+        .order_by('-validee_le')
+        .first()
+    )
+    notifications = []
+    if latest_validation:
+        notifications = list(latest_validation.notifications.select_related('groupe').prefetch_related('destinataires').order_by('-creee_le'))
+    return render(request, 'supervision/anomaly_detail.html', {
+        'anomaly': anomaly,
+        'latest_validation': latest_validation,
+        'notifications': notifications,
+    })
 
 
 @login_required
@@ -153,8 +261,33 @@ def anomaly_validate(request, pk):
 
 
 @login_required
+def notification_list(request):
+    qs = (
+        Notification.objects.select_related(
+            'groupe', 'validation__anomalie', 'validation__motif_final', 'validation__systeme_a_corriger_final'
+        )
+        .annotate(recipient_count=Count('destinataires', distinct=True))
+        .order_by('-creee_le')
+    )
+    statut = request.GET.get('statut', '').strip()
+    if statut:
+        qs = qs.filter(statut=statut)
+    return render(request, 'supervision/notification_list.html', {
+        'notifications': qs[:300],
+        'statut': statut,
+        'sent_count': Notification.objects.filter(statut=Notification.Statut.ENVOYEE).count(),
+        'failed_count': Notification.objects.filter(statut=Notification.Statut.ECHEC).count(),
+        'pending_count': Notification.objects.filter(statut=Notification.Statut.A_ENVOYER).count(),
+    })
+
+
+@login_required
 def group_list(request):
-    groups = GroupeResponsable.objects.select_related('systeme').prefetch_related('contacts').order_by('systeme__ordre_comparaison', 'nom_groupe')
+    groups = (
+        GroupeResponsable.objects.select_related('systeme')
+        .prefetch_related('contacts')
+        .order_by('systeme__ordre_comparaison', 'nom_groupe')
+    )
     return render(request, 'supervision/group_list.html', {'groups': groups})
 
 
