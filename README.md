@@ -20,8 +20,8 @@ Après détection, l'application analyse les données présentes dans les systè
 - analyse du motif par règles métier et point d'intégration ML Scikit-learn/Joblib ;
 - validation humaine du motif et du système à corriger ;
 - routage `motif + système → groupe` ;
-- gestion des groupes et ajout d'une adresse e-mail de collaborateur depuis l'interface ;
-- envoi SMTP et historisation des destinataires ;
+- gestion des groupes et contacts collaborateurs ;
+- envoi SMTP avec identité e-mail propre à BAM Supervise et historisation des destinataires ;
 - recontrôle automatique lors de la campagne suivante ;
 - historique des statuts et journal d'audit ;
 - interface Django/Bootstrap ;
@@ -34,7 +34,7 @@ Après détection, l'application analyse les données présentes dans les systè
 
 `systeme`, `superviseur`, `service_reference`, `attribut_definition`, `service_attribut_regle`, `flux_synchronisation`, `motif`, `regle_metier`, `groupe_responsable`, `contact_groupe`, `regle_affectation`, `fichier_import`, `envoi_snapshot`, `service_snapshot`, `valeur_attribut_snapshot`, `campagne_supervision`, `campagne_import`, `anomalie`, `detail_comparaison`, `modele_ml`, `prediction_motif`, `validation_motif`, `exemple_apprentissage`, `notification`, `notification_destinataire`, `verification_resolution`, `historique_anomalie`, `journal_audit`.
 
-> Django crée aussi ses tables techniques d'authentification, sessions et administration.
+> Django crée aussi ses tables techniques d'authentification et de sessions.
 
 ## Démarrage local avec MySQL déjà installé
 
@@ -71,7 +71,7 @@ python manage.py seed_bam
 python manage.py createsuperuser
 ```
 
-`seed_bam` crée SMI/SICOM/SIBO, les groupes par défaut, les attributs et motifs initiaux. Les **flux exacts** restent à configurer dans `/admin/`, car ils dépendent du fonctionnement métier confirmé pour chaque échange.
+`seed_bam` crée SMI/SICOM/SIBO, les groupes par défaut, les attributs et motifs initiaux. Les flux exacts restent à configurer selon le fonctionnement métier confirmé pour chaque échange.
 
 ### 4. Lancer
 
@@ -81,31 +81,59 @@ python manage.py runserver
 
 Ouvrir `http://127.0.0.1:8000`.
 
-## Configuration SMTP
+## Boîte e-mail professionnelle BAM Supervise
 
-Dans `.env` :
+L'application doit utiliser **sa propre boîte de service**, et non l'adresse personnelle d'un collaborateur. L'adresse exacte doit être créée par l'administrateur de messagerie du domaine officiel BAM, par exemple sous la forme :
+
+```text
+notifications@<domaine-officiel-BAM>
+```
+
+Ne pas inventer ou utiliser une adresse qui n'existe pas réellement.
+
+Configuration `.env` :
 
 ```env
 EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
-EMAIL_HOST=smtp.votre-domaine.ma
+EMAIL_HOST=smtp.<domaine-officiel-BAM>
 EMAIL_PORT=587
-EMAIL_HOST_USER=utilisateur
-EMAIL_HOST_PASSWORD=mot-de-passe
+EMAIL_HOST_USER=notifications@<domaine-officiel-BAM>
+EMAIL_HOST_PASSWORD=<secret-smtp>
 EMAIL_USE_TLS=1
-DEFAULT_FROM_EMAIL=bam-supervise@votre-domaine.ma
+EMAIL_USE_SSL=0
+EMAIL_TIMEOUT=20
+EMAIL_FROM_NAME=BAM Supervise
+EMAIL_FROM_ADDRESS=notifications@<domaine-officiel-BAM>
+EMAIL_REPLY_TO=support@<domaine-officiel-BAM>
 ```
 
-Pour un test sans envoyer de vrai mail :
+L'expéditeur visible par le collaborateur sera alors :
+
+```text
+BAM Supervise <notifications@<domaine-officiel-BAM>>
+```
+
+Les identifiants SMTP ne doivent jamais être commités dans Git : ils restent dans `.env` ou dans un coffre-fort de secrets.
+
+Pour vérifier une vraie configuration SMTP :
+
+```bash
+python manage.py send_test_email --to destinataire@domaine.ma
+```
+
+La commande refuse le backend console et les adresses d'expéditeur de démonstration/localhost afin d'éviter un faux test positif.
+
+Pour un test de développement qui ne doit pas envoyer de vrai mail :
 
 ```env
 EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
 ```
 
-Les tests automatiques utilisent un backend de test et vérifient le routage, les destinataires et le contenu sans utiliser de véritables adresses BAM.
+Dans ce mode, les messages sont affichés dans les logs et ne quittent pas l'application.
 
-## Ajouter les cinq collaborateurs
+## Ajouter les collaborateurs
 
-Dans l'application : **Collaborateurs → groupe SMI/SICOM/SIBO → Ajouter email**.
+Dans l'application : **Collaborateurs → groupe SMI/SICOM/SIBO → Ajouter**.
 
 La table `contact_groupe` conserve les membres. `notification_destinataire` fige les adresses réellement utilisées au moment de chaque envoi.
 
@@ -113,7 +141,7 @@ La table `contact_groupe` conserve les membres. `notification_destinataire` fige
 
 ```bash
 cp .env.example .env
-# renseigner au minimum les mots de passe et, si besoin, les paramètres SMTP
+# renseigner les secrets, le mot de passe superviseur et les paramètres SMTP réels
 
 docker compose up --build
 ```
@@ -124,10 +152,12 @@ Pour créer automatiquement le premier superviseur au premier démarrage Docker,
 
 ```env
 DJANGO_SUPERVISEUR_USERNAME=superviseur
-DJANGO_SUPERVISEUR_PASSWORD=change-me-now
-DJANGO_SUPERVISEUR_EMAIL=superviseur@example.com
+DJANGO_SUPERVISEUR_PASSWORD=<mot-de-passe-fort-d-au-moins-12-caracteres>
+DJANGO_SUPERVISEUR_EMAIL=<adresse-du-superviseur>
 DJANGO_SUPERVISEUR_NOM=Superviseur BAM
 ```
+
+Le bootstrap refuse les mots de passe de démonstration connus et applique les validateurs Django.
 
 ## Tests
 
@@ -138,10 +168,11 @@ DB_ENGINE=sqlite EMAIL_BACKEND=django.core.mail.backends.locmem.EmailBackend pyt
 
 L'intégration GitHub valide également les migrations et les tests sur **MySQL 8.4**, puis construit et démarre l'application avec **Docker Compose** et vérifie la réponse HTTP de la page de connexion.
 
-Les tests couvrent notamment : normalisation minimale, détection d'un envoi absent, routage/envoi d'e-mail et ajout d'un collaborateur.
+Les tests couvrent notamment : normalisation, détection d'anomalies, sécurité, routage/envoi d'e-mail, identité professionnelle de l'expéditeur et gestion des collaborateurs.
 
 ## Points à configurer avant production BAM
 
+- création réelle de la boîte professionnelle BAM Supervise sur le domaine officiel ;
 - paramètres SMTP réels de Barid Al-Maghrib ;
 - adresses réelles des collaborateurs ;
 - flux SMI/SICOM/SIBO confirmés ;
