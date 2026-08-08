@@ -17,7 +17,10 @@ class ApplicationSecurityTests(TestCase):
         self.group = GroupeResponsable.objects.create(systeme=self.smi, nom_groupe='Groupe SMI')
 
     def test_protected_pages_require_authentication(self):
-        for name in ('dashboard', 'campaign_list', 'campaign_create', 'anomaly_list', 'notification_list', 'group_list'):
+        for name in (
+            'dashboard', 'campaign_list', 'campaign_create', 'anomaly_list',
+            'notification_list', 'group_list', 'activity_list',
+        ):
             response = self.client.get(reverse(name))
             self.assertEqual(response.status_code, 302, name)
             self.assertIn('/login/', response.url)
@@ -33,6 +36,20 @@ class ApplicationSecurityTests(TestCase):
         })
         self.assertEqual(response.status_code, 403)
         self.assertFalse(ContactGroupe.objects.filter(email='csrf@example.com').exists())
+
+    def test_csrf_is_required_for_collaborator_activation_change(self):
+        contact = ContactGroupe.objects.create(
+            groupe=self.group,
+            nom_complet='Contact protégé',
+            email='protected@example.com',
+            actif=True,
+        )
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.user)
+        response = client.post(reverse('contact_toggle', args=[contact.pk]))
+        self.assertEqual(response.status_code, 403)
+        contact.refresh_from_db()
+        self.assertTrue(contact.actif)
 
     def test_template_autoescape_blocks_stored_xss(self):
         ContactGroupe.objects.create(
