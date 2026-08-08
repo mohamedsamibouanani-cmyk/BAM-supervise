@@ -1,0 +1,53 @@
+{% extends 'supervision/base.html' %}
+{% block title %}Campagnes · BAM Supervise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-eyebrow"><i class="bi bi-clock-history"></i> Traçabilité</div>
+    <h1 class="page-title">Campagnes de supervision</h1>
+    <p class="page-subtitle">Chaque campagne regroupe exactement un import SMI, un import SICOM et un import SIBO avant l’exécution de la comparaison.</p>
+  </div>
+  <div class="page-actions"><a class="btn btn-primary" href="{% url 'campaign_create' %}"><i class="bi bi-plus-lg me-1"></i> Nouvelle campagne</a></div>
+</div>
+
+<form class="filter-bar" method="get">
+  <div class="filter-field">
+    <label class="form-label">Statut</label>
+    <select class="form-select" name="statut">
+      <option value="">Tous les statuts</option>
+      <option value="PREPAREE" {% if statut == 'PREPAREE' %}selected{% endif %}>Préparée</option>
+      <option value="EN_COURS" {% if statut == 'EN_COURS' %}selected{% endif %}>En cours</option>
+      <option value="TERMINEE" {% if statut == 'TERMINEE' %}selected{% endif %}>Terminée</option>
+      <option value="ECHEC" {% if statut == 'ECHEC' %}selected{% endif %}>Échec</option>
+    </select>
+  </div>
+  <div><button class="btn btn-light" type="submit"><i class="bi bi-funnel me-1"></i> Filtrer</button></div>
+  {% if statut %}<div><a class="btn btn-link" href="{% url 'campaign_list' %}">Réinitialiser</a></div>{% endif %}
+</form>
+
+<section class="panel">
+  <div class="panel-header"><div><h2 class="panel-title">Historique d’exécution</h2><p class="panel-subtitle">Imports, moteur de comparaison et volume d’écarts détectés</p></div><span class="system-badge">{{ campagnes|length }} affichée{{ campagnes|length|pluralize }}</span></div>
+  {% if campagnes %}
+  <div class="table-wrap">
+    <table class="table table-hover">
+      <thead><tr><th>Campagne</th><th>Date</th><th>Type</th><th>Imports</th><th>Anomalies</th><th>Version moteur</th><th>Statut</th></tr></thead>
+      <tbody>
+      {% for c in campagnes %}
+        <tr>
+          <td><span class="code">#{{ c.pk }}</span><div class="text-secondary mt-1" style="font-size:10px">ORG {{ c.org_commerciale }}</div></td>
+          <td>{{ c.demarree_le|date:'d/m/Y' }}<div class="text-secondary mt-1" style="font-size:10px">{{ c.demarree_le|date:'H:i:s' }}</div></td>
+          <td>{{ c.type_declenchement }}</td>
+          <td><span class="system-badge">{{ c.import_count }}/3 fichiers</span></td>
+          <td><strong>{{ c.anomaly_count }}</strong></td>
+          <td><span class="code">{{ c.version_moteur }}</span></td>
+          <td><span class="status-badge {% if c.statut == 'TERMINEE' %}status-RESOLUE{% elif c.statut == 'ECHEC' %}status-DETECTEE{% else %}status-ANALYSEE{% endif %}">{{ c.get_statut_display }}</span>{% if c.message_erreur %}<div class="text-danger mt-1" style="font-size:10px">{{ c.message_erreur|truncatechars:70 }}</div>{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <div class="empty-state"><div class="empty-icon"><i class="bi bi-clock-history"></i></div><h3>Aucune campagne</h3><p>Créez une première campagne pour importer les trois fichiers et lancer la comparaison.</p></div>
+  {% endif %}
+</section>
+{% endblock %}
