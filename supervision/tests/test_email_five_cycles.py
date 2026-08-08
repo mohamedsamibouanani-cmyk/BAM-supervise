@@ -18,6 +18,7 @@ from supervision.models import (
 
 @override_settings(
     EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+    EMAIL_ALLOW_SIMULATED_DELIVERY=True,
     EMAIL_FROM_NAME='BAM Supervise',
     EMAIL_FROM_ADDRESS='notifications@bam.test',
     EMAIL_REPLY_TO='support@bam.test',
