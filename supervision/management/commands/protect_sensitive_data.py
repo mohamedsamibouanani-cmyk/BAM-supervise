@@ -1,12 +1,16 @@
+from pathlib import Path
+
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from supervision.models import DetailComparaison, ValeurAttributSnapshot
-from supervision.services.security import encrypt_sensitive, masked_sensitive_value, sensitive_fingerprint
+from supervision.models import DetailComparaison, FichierImport, ValeurAttributSnapshot
+from supervision.services.security import (
+    encrypt_file_bytes, encrypt_sensitive, masked_sensitive_value, sensitive_fingerprint,
+)
 
 
 class Command(BaseCommand):
-    help = 'Protège les valeurs historiques des attributs marqués sensibles.'
+    help = 'Protège les fichiers et valeurs historiques marqués sensibles.'
 
     @transaction.atomic
     def handle(self, *args, **options):
@@ -36,6 +40,25 @@ class Command(BaseCommand):
                 detail.save(update_fields=['valeur_brute', 'valeur_normalisee'])
                 masked += 1
 
+        encrypted_files = 0
+        for imported in FichierImport.objects.exclude(chemin_stockage=''):
+            path = Path(imported.chemin_stockage)
+            if not path.exists() or not path.is_file():
+                continue
+            data = path.read_bytes()
+            if data.startswith(b'bamfile:v1:'):
+                continue
+            encrypted = encrypt_file_bytes(data)
+            target = path if path.suffix == '.enc' else Path(f'{path}.enc')
+            target.write_bytes(encrypted)
+            if target != path:
+                path.unlink(missing_ok=True)
+                imported.chemin_stockage = str(target)
+                imported.save(update_fields=['chemin_stockage'])
+            encrypted_files += 1
+
         self.stdout.write(self.style.SUCCESS(
-            f'Données sensibles protégées: {protected} snapshot(s), {masked} preuve(s) masquée(s).'
+            'Protection terminée: '
+            f'{protected} snapshot(s), {masked} preuve(s) masquée(s), '
+            f'{encrypted_files} fichier(s) historique(s) chiffré(s).'
         ))
