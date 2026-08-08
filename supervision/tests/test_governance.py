@@ -83,6 +83,7 @@ class GovernanceTests(TestCase):
 
     @override_settings(
         EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+        EMAIL_ALLOW_SIMULATED_DELIVERY=True,
         DEFAULT_FROM_EMAIL='bam-supervise-test@example.ma',
     )
     def test_failed_notification_retry_preserves_original_failure(self):
