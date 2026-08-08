@@ -1,0 +1,163 @@
+name: Validation finale - 5 cycles
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  cycle1_unit_schema:
+    name: Cycle 1 - Unite et schema
+    runs-on: ubuntu-latest
+    env:
+      DB_ENGINE: sqlite
+      DJANGO_SECRET_KEY: cycle1-test-secret-key-2026
+      BAM_DATA_ENCRYPTION_KEY: cycle1-data-key-2026
+      EMAIL_BACKEND: django.core.mail.backends.locmem.EmailBackend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Django system check
+        run: python manage.py check
+      - name: No pending model migrations
+        run: python manage.py makemigrations --check --dry-run
+      - name: Unit and data protection tests
+        run: python manage.py test supervision.tests.test_utils supervision.tests.test_comparison supervision.tests.test_data_protection
+
+  cycle2_security:
+    name: Cycle 2 - Securite applicative
+    runs-on: ubuntu-latest
+    needs: cycle1_unit_schema
+    env:
+      DB_ENGINE: sqlite
+      DJANGO_SECRET_KEY: cycle2-test-secret-key-2026
+      BAM_DATA_ENCRYPTION_KEY: cycle2-data-key-2026
+      EMAIL_BACKEND: django.core.mail.backends.locmem.EmailBackend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Negative security tests
+        run: python manage.py test supervision.tests.test_security
+      - name: Production deploy checks
+        env:
+          DJANGO_DEBUG: '0'
+          DJANGO_SECRET_KEY: production-like-secret-key-for-ci-2026-very-long-and-private
+          DJANGO_ALLOWED_HOSTS: bam.example.internal
+          DJANGO_SECURE_COOKIES: '1'
+          DJANGO_SECURE_SSL_REDIRECT: '1'
+          DJANGO_HSTS_SECONDS: '31536000'
+          DJANGO_HSTS_PRELOAD: '1'
+          BAM_DATA_ENCRYPTION_KEY: production-like-data-encryption-key-for-ci-2026
+        run: python manage.py check --deploy --fail-level WARNING
+
+  cycle3_business_workflow:
+    name: Cycle 3 - Workflow metier complet
+    runs-on: ubuntu-latest
+    needs: cycle2_security
+    env:
+      DB_ENGINE: sqlite
+      DJANGO_SECRET_KEY: cycle3-test-secret-key-2026
+      BAM_DATA_ENCRYPTION_KEY: cycle3-data-key-2026
+      EMAIL_BACKEND: django.core.mail.backends.locmem.EmailBackend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Full Django test suite
+        run: python manage.py test
+
+  cycle4_mysql:
+    name: Cycle 4 - Integration MySQL 8.4
+    runs-on: ubuntu-latest
+    needs: cycle3_business_workflow
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: bam_supervise
+          MYSQL_ROOT_PASSWORD: root_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      DB_ENGINE: mysql
+      MYSQL_DATABASE: bam_supervise
+      MYSQL_USER: root
+      MYSQL_PASSWORD: root_password
+      MYSQL_HOST: 127.0.0.1
+      MYSQL_PORT: 3306
+      DJANGO_SECRET_KEY: cycle4-mysql-secret-key-2026
+      BAM_DATA_ENCRYPTION_KEY: cycle4-mysql-data-key-2026
+      EMAIL_BACKEND: django.core.mail.backends.locmem.EmailBackend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Migrate and seed MySQL
+        run: |
+          python manage.py migrate --noinput
+          python manage.py seed_bam
+          python manage.py protect_sensitive_data
+          python manage.py check
+      - name: Full tests on MySQL
+        run: python manage.py test
+
+  cycle5_docker_e2e:
+    name: Cycle 5 - Docker HTTP statiques securite
+    runs-on: ubuntu-latest
+    needs: cycle4_mysql
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare Docker environment
+        run: |
+          cp .env.example .env
+          sed -i 's/EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend/EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend/' .env
+          sed -i 's/DJANGO_SUPERVISEUR_PASSWORD=change-me-now/DJANGO_SUPERVISEUR_PASSWORD=Strong-Docker-Test-Password-2026!/' .env
+      - name: Validate Compose
+        run: docker compose config
+      - name: Build and start stack
+        run: docker compose up -d --build
+      - name: Wait for HTTP application
+        run: |
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:8000/login/ | grep -q 'BAM Supervise'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose ps
+          docker compose logs web
+          exit 1
+      - name: Verify local CSS and vendor assets
+        run: |
+          curl -fsS http://127.0.0.1:8000/static/supervision/app.css | grep -q -- '--mit-red'
+          curl -fsS http://127.0.0.1:8000/static/vendor/bootstrap/bootstrap.min.css | grep -qi 'bootstrap'
+          curl -fsS http://127.0.0.1:8000/static/vendor/chart/chart.umd.min.js | grep -q 'Chart'
+      - name: Verify security headers
+        run: |
+          headers="$(curl -fsSI http://127.0.0.1:8000/login/ | tr -d '\r')"
+          echo "$headers" | grep -qi '^Content-Security-Policy:'
+          echo "$headers" | grep -qi '^X-Frame-Options: DENY'
+          echo "$headers" | grep -qi '^X-Content-Type-Options: nosniff'
+          echo "$headers" | grep -qi '^Referrer-Policy: same-origin'
+      - name: Container status and Django checks
+        run: |
+          docker compose ps
+          docker compose exec -T web python manage.py check
+      - name: Stop containers
+        if: always()
+        run: docker compose down -v
