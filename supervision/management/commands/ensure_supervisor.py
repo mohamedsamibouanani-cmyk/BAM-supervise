@@ -1,8 +1,18 @@
 import os
 
-from django.core.management.base import BaseCommand
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.core.management.base import BaseCommand, CommandError
 
 from supervision.models import Superviseur
+
+
+_FORBIDDEN_BOOTSTRAP_PASSWORDS = {
+    'change-me-now',
+    'admin12345',
+    'password',
+    'superviseur',
+}
 
 
 class Command(BaseCommand):
@@ -16,6 +26,7 @@ class Command(BaseCommand):
         username = os.getenv('DJANGO_SUPERVISEUR_USERNAME', '').strip()
         password = os.getenv('DJANGO_SUPERVISEUR_PASSWORD', '')
         email = os.getenv('DJANGO_SUPERVISEUR_EMAIL', '').strip()
+        nom_complet = os.getenv('DJANGO_SUPERVISEUR_NOM', username).strip() or username
 
         if not username or not password:
             self.stdout.write(
@@ -27,10 +38,29 @@ class Command(BaseCommand):
             )
             return
 
+        if password.lower() in _FORBIDDEN_BOOTSTRAP_PASSWORDS:
+            raise CommandError(
+                'DJANGO_SUPERVISEUR_PASSWORD utilise une valeur de démonstration interdite. '
+                'Choisissez un mot de passe fort et privé.'
+            )
+
+        candidate = Superviseur(
+            username=username,
+            email=email,
+            nom_complet=nom_complet,
+        )
+        try:
+            validate_password(password, user=candidate)
+        except ValidationError as exc:
+            raise CommandError(
+                'DJANGO_SUPERVISEUR_PASSWORD ne respecte pas la politique de sécurité : '
+                + ' '.join(exc.messages)
+            ) from exc
+
         Superviseur.objects.create_superuser(
             username=username,
             password=password,
             email=email,
-            nom_complet=os.getenv('DJANGO_SUPERVISEUR_NOM', username).strip() or username,
+            nom_complet=nom_complet,
         )
         self.stdout.write(self.style.SUCCESS(f'Superviseur {username} créé.'))
