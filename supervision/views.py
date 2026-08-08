@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from .forms import CampaignImportForm, ContactGroupeForm, ValidationMotifForm
 from .models import (
-    Anomalie, CampagneImport, CampagneSupervision, ExempleApprentissage,
+    Anomalie, CampagneImport, CampagneSupervision, ContactGroupe, ExempleApprentissage,
     GroupeResponsable, HistoriqueAnomalie, JournalAudit, Notification, Systeme,
     ValidationMotif,
 )
@@ -19,12 +19,13 @@ from .services.importer import import_excel
 from .services.notifications import send_validation_email
 
 
-def _audit(request, action, entity, entity_id, new_values=None):
+def _audit(request, action, entity, entity_id, new_values=None, old_values=None):
     JournalAudit.objects.create(
         superviseur=request.user if request.user.is_authenticated else None,
         action=action,
         entite=entity,
         id_entite=entity_id,
+        anciennes_valeurs=old_values,
         nouvelles_valeurs=new_values,
         adresse_ip=request.META.get('REMOTE_ADDR'),
         user_agent=request.META.get('HTTP_USER_AGENT', '')[:500],
@@ -300,9 +301,41 @@ def contact_add(request, group_id):
             contact = form.save(commit=False)
             contact.groupe = group
             contact.save()
-            _audit(request, 'CREATE', 'contact_groupe', contact.pk, {'email': contact.email, 'systeme': group.systeme.code_systeme})
+            _audit(request, 'CREATE', 'contact_groupe', contact.pk, {
+                'email': contact.email, 'systeme': group.systeme.code_systeme, 'actif': contact.actif,
+            })
             messages.success(request, f'Adresse {contact.email} ajoutée au groupe {group.nom_groupe}.')
             return redirect('group_list')
     else:
         form = ContactGroupeForm()
-    return render(request, 'supervision/contact_form.html', {'form': form, 'group': group})
+    return render(request, 'supervision/contact_form.html', {'form': form, 'group': group, 'mode': 'create'})
+
+
+@login_required
+def contact_edit(request, contact_id):
+    contact = get_object_or_404(ContactGroupe.objects.select_related('groupe__systeme'), pk=contact_id)
+    group = contact.groupe
+    before = {
+        'nom_complet': contact.nom_complet,
+        'email': contact.email,
+        'fonction': contact.fonction,
+        'actif': contact.actif,
+    }
+    if request.method == 'POST':
+        form = ContactGroupeForm(request.POST, instance=contact)
+        if form.is_valid():
+            contact = form.save()
+            after = {
+                'nom_complet': contact.nom_complet,
+                'email': contact.email,
+                'fonction': contact.fonction,
+                'actif': contact.actif,
+            }
+            _audit(request, 'UPDATE', 'contact_groupe', contact.pk, after, before)
+            messages.success(request, f'Collaborateur {contact.nom_complet} mis à jour.')
+            return redirect('group_list')
+    else:
+        form = ContactGroupeForm(instance=contact)
+    return render(request, 'supervision/contact_form.html', {
+        'form': form, 'group': group, 'contact': contact, 'mode': 'edit',
+    })
