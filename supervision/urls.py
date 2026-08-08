@@ -1,5 +1,5 @@
 from django.urls import path
-from . import views
+from . import views, views_governance
 
 urlpatterns = [
     path('', views.dashboard, name='dashboard'),
@@ -12,4 +12,6 @@ urlpatterns = [
     path('groupes/', views.group_list, name='group_list'),
     path('groupes/<int:group_id>/contacts/ajouter/', views.contact_add, name='contact_add'),
     path('contacts/<int:contact_id>/modifier/', views.contact_edit, name='contact_edit'),
+    path('contacts/<int:contact_id>/etat/', views_governance.contact_toggle, name='contact_toggle'),
+    path('activites/', views_governance.activity_list, name='activity_list'),
 ]
