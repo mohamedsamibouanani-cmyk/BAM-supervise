@@ -23,7 +23,12 @@
         <div class="d-flex align-items-center justify-content-between mb-2"><span class="evidence-label mb-0">Collaborateurs</span><span class="system-badge">{{ g.contacts.count }} contact{{ g.contacts.count|pluralize }}</span></div>
         <div class="quick-list">
           {% for c in g.contacts.all %}
-            <div class="quick-row"><div class="user-avatar" style="background:#f2f4f7;color:#475467">{{ c.nom_complet|slice:':1'|upper }}</div><div class="quick-copy"><strong>{{ c.nom_complet }}</strong><small>{{ c.email }}{% if c.fonction %} · {{ c.fonction }}{% endif %}</small></div>{% if c.actif %}<i class="bi bi-check-circle-fill text-success" title="Actif"></i>{% else %}<i class="bi bi-dash-circle text-secondary" title="Inactif"></i>{% endif %}</div>
+            <div class="quick-row">
+              <div class="user-avatar" style="background:#f2f4f7;color:#475467">{{ c.nom_complet|slice:':1'|upper }}</div>
+              <div class="quick-copy"><strong>{{ c.nom_complet }}</strong><small>{{ c.email }}{% if c.fonction %} · {{ c.fonction }}{% endif %}</small></div>
+              {% if c.actif %}<i class="bi bi-check-circle-fill text-success" title="Actif"></i>{% else %}<i class="bi bi-dash-circle text-secondary" title="Inactif"></i>{% endif %}
+              <a class="icon-btn" href="{% url 'contact_edit' c.pk %}" title="Modifier"><i class="bi bi-pencil-square"></i></a>
+            </div>
           {% empty %}<div class="empty-state py-4"><div class="empty-icon"><i class="bi bi-person-plus"></i></div><h3>Aucun contact</h3><p>Ajoutez les adresses des collaborateurs de ce groupe pour permettre la notification.</p></div>{% endfor %}
         </div>
       </div>
