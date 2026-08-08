@@ -8,6 +8,7 @@ from supervision.models import (
     Systeme, ValeurAttributSnapshot, VerificationResolution,
 )
 from .analysis import analyze_anomaly
+from .security import masked_sensitive_value
 from .utils import stable_hash
 
 
@@ -154,10 +155,11 @@ def _attribute_details(systems, vals, gap_code=None):
     details = {}
     for s in systems:
         v = vals[s]
+        sensitive = bool(v and v.attribut.sensible)
         details[s] = {
             'objet_present': bool(v and not v.est_vide),
-            'valeur_brute': v.valeur_brute if v else None,
-            'valeur_normalisee': v.valeur_normalisee if v else None,
+            'valeur_brute': masked_sensitive_value(v.valeur_brute) if sensitive else (v.valeur_brute if v else None),
+            'valeur_normalisee': masked_sensitive_value(v.valeur_normalisee) if sensitive else (v.valeur_normalisee if v else None),
             'format_source_conforme': v.format_source_conforme if v else None,
             'est_ecart': s == gap_code,
         }
