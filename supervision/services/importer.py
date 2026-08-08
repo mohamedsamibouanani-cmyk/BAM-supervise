@@ -8,6 +8,7 @@ from supervision.models import (
     AttributDefinition, EnvoiSnapshot, FichierImport, ServiceReference,
     ServiceSnapshot, ValeurAttributSnapshot,
 )
+from .security import encrypt_sensitive, sensitive_fingerprint
 from .utils import clean_text, infer_attribute_scope, infer_attribute_type, normalize_value, sha256_bytes, stable_hash
 
 STRUCTURAL_COLUMNS = {'CODE_ENVOI', 'NUM_COMMANDE', 'ARTICLE', 'DES_ARTICLE', 'ORG_COMMERCIALE', 'DATE_COMMANDE'}
@@ -140,14 +141,25 @@ def _persist_dataframe(df, fichier):
 
 
 def _create_value(envoi, service, definition, raw_value):
+    raw_clean = clean_text(raw_value)
     normalized = normalize_value(raw_value, definition.type_valeur)
+    stored_raw = raw_clean
+    stored_comparable = normalized or None
+    numeric_projection = _decimal_projection(normalized) if definition.type_valeur == 'NOMBRE' else None
+
+    if definition.sensible and normalized:
+        # Sensitive plaintext is encrypted at rest; equality uses a keyed HMAC fingerprint.
+        stored_raw = encrypt_sensitive(raw_clean)
+        stored_comparable = sensitive_fingerprint(normalized)
+        numeric_projection = None
+
     ValeurAttributSnapshot.objects.create(
         envoi_snapshot=envoi,
         service_snapshot=service,
         attribut=definition,
-        valeur_brute=clean_text(raw_value),
-        valeur_normalisee=normalized or None,
-        valeur_numerique=_decimal_projection(normalized) if definition.type_valeur == 'NOMBRE' else None,
+        valeur_brute=stored_raw,
+        valeur_normalisee=stored_comparable,
+        valeur_numerique=numeric_projection,
         est_vide=(normalized == ''),
         format_source_conforme=None,
     )
