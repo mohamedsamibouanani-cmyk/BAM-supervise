@@ -2,10 +2,10 @@ from django.core import mail
 from django.test import TestCase, override_settings
 
 from supervision.models import (
-    Anomalie, CampagneSupervision, GroupeResponsable, Motif, RegleAffectation,
-    Systeme, Superviseur, ValidationMotif, ContactGroupe,
+    Anomalie, CampagneSupervision, GroupeResponsable, Motif, Notification,
+    RegleAffectation, Systeme, Superviseur, ValidationMotif, ContactGroupe,
 )
-from supervision.services.notifications import send_validation_email
+from supervision.services.notifications import RoutingError, send_validation_email
 
 
 @override_settings(
@@ -33,3 +33,18 @@ class EmailWorkflowTests(TestCase):
         self.assertIn('collab@example.com', mail.outbox[0].to)
         self.anomaly.refresh_from_db()
         self.assertEqual(self.anomaly.statut, 'NOTIFIEE')
+
+    @override_settings(
+        EMAIL_BACKEND='django.core.mail.backends.console.EmailBackend',
+        EMAIL_ALLOW_SIMULATED_DELIVERY=False,
+    )
+    def test_console_backend_cannot_fake_real_delivery(self):
+        with self.assertRaises(RoutingError):
+            send_validation_email(self.validation)
+
+        notification = Notification.objects.get(validation=self.validation)
+        self.assertEqual(notification.statut, Notification.Statut.ECHEC)
+        self.assertIn('mode test', notification.erreur)
+
+        self.anomaly.refresh_from_db()
+        self.assertNotEqual(self.anomaly.statut, Anomalie.Statut.NOTIFIEE)
