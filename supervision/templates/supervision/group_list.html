@@ -5,7 +5,7 @@
   <div>
     <div class="page-eyebrow"><i class="bi bi-people"></i> Affectation</div>
     <h1 class="page-title">Groupes responsables</h1>
-    <p class="page-subtitle">Les collaborateurs ne disposent pas de compte dans BAM Supervise. Leurs adresses sont utilisées uniquement pour notifier le groupe responsable après validation.</p>
+    <p class="page-subtitle">Les collaborateurs ne disposent pas de compte dans BAM Supervise. Leurs adresses sont utilisées uniquement pour notifier le groupe responsable après validation. Un contact désactivé reste conservé pour préserver l'historique.</p>
   </div>
 </div>
 
@@ -26,8 +26,13 @@
             <div class="quick-row">
               <div class="user-avatar" style="background:#f2f4f7;color:#475467">{{ c.nom_complet|slice:':1'|upper }}</div>
               <div class="quick-copy"><strong>{{ c.nom_complet }}</strong><small>{{ c.email }}{% if c.fonction %} · {{ c.fonction }}{% endif %}</small></div>
-              {% if c.actif %}<i class="bi bi-check-circle-fill text-success" title="Actif"></i>{% else %}<i class="bi bi-dash-circle text-secondary" title="Inactif"></i>{% endif %}
+              {% if c.actif %}<span class="status-badge status-RESOLUE">Actif</span>{% else %}<span class="status-badge status-DETECTEE">Inactif</span>{% endif %}
               <a class="icon-btn" href="{% url 'contact_edit' c.pk %}" title="Modifier"><i class="bi bi-pencil-square"></i></a>
+              <form method="post" action="{% url 'contact_toggle' c.pk %}" class="m-0">{% csrf_token %}
+                <button class="icon-btn" type="submit" title="{% if c.actif %}Désactiver{% else %}Réactiver{% endif %}" aria-label="{% if c.actif %}Désactiver{% else %}Réactiver{% endif %} {{ c.nom_complet }}">
+                  {% if c.actif %}<i class="bi bi-person-dash"></i>{% else %}<i class="bi bi-person-check"></i>{% endif %}
+                </button>
+              </form>
             </div>
           {% empty %}<div class="empty-state py-4"><div class="empty-icon"><i class="bi bi-person-plus"></i></div><h3>Aucun contact</h3><p>Ajoutez les adresses des collaborateurs de ce groupe pour permettre la notification.</p></div>{% endfor %}
         </div>
