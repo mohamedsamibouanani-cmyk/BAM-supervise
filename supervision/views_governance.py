@@ -4,7 +4,8 @@ from django.db.models import Q
 from django.http import HttpResponseNotAllowed
 from django.shortcuts import get_object_or_404, redirect, render
 
-from .models import ContactGroupe, JournalAudit
+from .models import ContactGroupe, JournalAudit, Notification
+from .services.notifications import send_validation_email
 
 
 def _audit(request, action, entity, entity_id, *, old_values=None, new_values=None):
@@ -45,6 +46,47 @@ def contact_toggle(request, contact_id):
     state = 'réactivé' if contact.actif else 'désactivé'
     messages.success(request, f'Collaborateur {contact.nom_complet} {state}.')
     return redirect('group_list')
+
+
+@login_required
+def notification_retry(request, notification_id):
+    """Retry a failed notification without mutating the historical failed record."""
+    if request.method != 'POST':
+        return HttpResponseNotAllowed(['POST'])
+
+    notification = get_object_or_404(
+        Notification.objects.select_related('validation__anomalie'),
+        pk=notification_id,
+    )
+    if notification.statut != Notification.Statut.ECHEC:
+        messages.info(request, 'Seules les notifications en échec peuvent être relancées.')
+        return redirect('notification_list')
+
+    try:
+        retried = send_validation_email(notification.validation)
+        _audit(
+            request,
+            'RETRY_EMAIL',
+            'notification',
+            notification.pk,
+            old_values={'statut': notification.statut, 'nb_tentatives': notification.nb_tentatives},
+            new_values={'nouvelle_notification_id': retried.pk, 'statut': retried.statut},
+        )
+        messages.success(
+            request,
+            f'Notification relancée avec succès pour l’envoi {notification.validation.anomalie.code_envoi}.',
+        )
+    except Exception as exc:
+        _audit(
+            request,
+            'RETRY_EMAIL_FAILED',
+            'notification',
+            notification.pk,
+            old_values={'statut': notification.statut, 'nb_tentatives': notification.nb_tentatives},
+            new_values={'erreur': str(exc)[:300]},
+        )
+        messages.error(request, f'Échec de la relance : {exc}')
+    return redirect('notification_list')
 
 
 @login_required
