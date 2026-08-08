@@ -30,7 +30,8 @@
     <div class="sidebar-section-label">Action & gouvernance</div>
     <nav class="sidebar-nav">
       <a class="sidebar-link {% if request.resolver_match.url_name == 'notification_list' %}active{% endif %}" href="{% url 'notification_list' %}"><i class="bi bi-envelope-paper-fill"></i><span>Notifications</span></a>
-      <a class="sidebar-link {% if request.resolver_match.url_name == 'group_list' or request.resolver_match.url_name == 'contact_add' %}active{% endif %}" href="{% url 'group_list' %}"><i class="bi bi-people-fill"></i><span>Collaborateurs</span></a>
+      <a class="sidebar-link {% if request.resolver_match.url_name == 'group_list' or 'contact_' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'group_list' %}"><i class="bi bi-people-fill"></i><span>Collaborateurs</span></a>
+      <a class="sidebar-link {% if request.resolver_match.url_name == 'activity_list' %}active{% endif %}" href="{% url 'activity_list' %}"><i class="bi bi-journal-check"></i><span>Activités</span></a>
       <a class="sidebar-link" href="/admin/"><i class="bi bi-sliders"></i><span>Administration</span></a>
     </nav>
 
@@ -55,6 +56,7 @@
         <a class="sidebar-link" href="{% url 'anomaly_list' %}"><i class="bi bi-exclamation-diamond-fill"></i>Anomalies</a>
         <a class="sidebar-link" href="{% url 'notification_list' %}"><i class="bi bi-envelope-paper-fill"></i>Notifications</a>
         <a class="sidebar-link" href="{% url 'group_list' %}"><i class="bi bi-people-fill"></i>Collaborateurs</a>
+        <a class="sidebar-link" href="{% url 'activity_list' %}"><i class="bi bi-journal-check"></i>Activités</a>
         <a class="sidebar-link" href="/admin/"><i class="bi bi-sliders"></i>Administration</a>
       </nav>
     </div>
