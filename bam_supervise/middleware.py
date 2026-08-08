@@ -1,20 +1,15 @@
-import secrets
-
-
 class SecurityHeadersMiddleware:
-    """Defense-in-depth browser security headers with a per-request CSP nonce."""
+    """Defense-in-depth browser security headers for the supervision UI."""
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        nonce = secrets.token_urlsafe(24)
-        request.csp_nonce = nonce
         response = self.get_response(request)
         response.setdefault(
             'Content-Security-Policy',
             "default-src 'self'; "
-            f"script-src 'self' 'nonce-{nonce}'; "
+            "script-src 'self'; "
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data:; "
             "font-src 'self' data:; "
