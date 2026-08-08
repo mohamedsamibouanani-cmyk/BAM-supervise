@@ -1,7 +1,72 @@
 {% extends 'supervision/base.html' %}
+{% block title %}Nouvelle campagne · BAM Supervise{% endblock %}
 {% block content %}
-<div class="row justify-content-center"><div class="col-lg-8"><div class="card border-0 shadow-sm"><div class="card-body p-4">
-<h1 class="h4">Nouvelle campagne de supervision</h1><p class="text-muted">Importez exactement un fichier pour SMI, SICOM et SIBO. Seules les lignes ORG_COMMERCIALE = 2000 sont analysées.</p>
-<form method="post" enctype="multipart/form-data">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary">Importer et lancer la comparaison</button></form>
-</div></div></div></div>
+<div class="page-header">
+  <div>
+    <div class="page-eyebrow"><i class="bi bi-cloud-arrow-up"></i> Ingestion</div>
+    <h1 class="page-title">Nouvelle campagne de supervision</h1>
+    <p class="page-subtitle">Importez une photographie de chaque système. La comparaison ne démarre que lorsque les trois fichiers SMI, SICOM et SIBO sont disponibles et valides.</p>
+  </div>
+  <div class="page-actions"><a class="btn btn-light" href="{% url 'campaign_list' %}"><i class="bi bi-clock-history me-1"></i> Historique</a></div>
+</div>
+
+<div class="row g-3">
+  <div class="col-xl-8">
+    <section class="panel">
+      <div class="panel-header"><div><h2 class="panel-title">Sélection des fichiers</h2><p class="panel-subtitle">Formats Excel .xlsx ou .xls · filtre métier ORG_COMMERCIALE = 2000</p></div><span class="system-badge">3 fichiers requis</span></div>
+      <div class="panel-body">
+        <form method="post" enctype="multipart/form-data">{% csrf_token %}
+          {% if form.non_field_errors %}<div class="alert alert-danger">{{ form.non_field_errors }}</div>{% endif %}
+          <div class="row g-3">
+            <div class="col-lg-4">
+              <div class="file-drop h-100">
+                <div class="d-flex align-items-center justify-content-between mb-3"><span class="system-badge">SMI</span><i class="bi bi-file-earmark-spreadsheet fs-4 text-secondary"></i></div>
+                <label class="form-label" for="{{ form.fichier_smi.id_for_label }}">Fichier source SMI</label>
+                {{ form.fichier_smi }}
+                {% if form.fichier_smi.errors %}<div class="text-danger mt-2 small">{{ form.fichier_smi.errors }}</div>{% endif %}
+                <div class="text-secondary mt-2" style="font-size:10px">Ancien système · photographie à comparer</div>
+              </div>
+            </div>
+            <div class="col-lg-4">
+              <div class="file-drop h-100">
+                <div class="d-flex align-items-center justify-content-between mb-3"><span class="system-badge">SICOM</span><i class="bi bi-file-earmark-spreadsheet fs-4 text-secondary"></i></div>
+                <label class="form-label" for="{{ form.fichier_sicom.id_for_label }}">Fichier source SICOM</label>
+                {{ form.fichier_sicom }}
+                {% if form.fichier_sicom.errors %}<div class="text-danger mt-2 small">{{ form.fichier_sicom.errors }}</div>{% endif %}
+                <div class="text-secondary mt-2" style="font-size:10px">Système cible · photographie à comparer</div>
+              </div>
+            </div>
+            <div class="col-lg-4">
+              <div class="file-drop h-100">
+                <div class="d-flex align-items-center justify-content-between mb-3"><span class="system-badge">SIBO</span><i class="bi bi-file-earmark-spreadsheet fs-4 text-secondary"></i></div>
+                <label class="form-label" for="{{ form.fichier_sibo.id_for_label }}">Fichier source SIBO</label>
+                {{ form.fichier_sibo }}
+                {% if form.fichier_sibo.errors %}<div class="text-danger mt-2 small">{{ form.fichier_sibo.errors }}</div>{% endif %}
+                <div class="text-secondary mt-2" style="font-size:10px">Back office · photographie à comparer</div>
+              </div>
+            </div>
+          </div>
+          <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mt-4 pt-3 border-top">
+            <div class="text-secondary" style="font-size:11px"><i class="bi bi-shield-check me-1"></i> Les fichiers sont conservés pour assurer la traçabilité de la campagne.</div>
+            <button class="btn btn-primary" type="submit"><i class="bi bi-play-fill me-1"></i> Importer et lancer la comparaison</button>
+          </div>
+        </form>
+      </div>
+    </section>
+  </div>
+
+  <div class="col-xl-4">
+    <section class="panel mb-3">
+      <div class="panel-header"><div><h2 class="panel-title">Contrôles exécutés</h2><p class="panel-subtitle">Pipeline déterministe en trois niveaux</p></div></div>
+      <div class="panel-body quick-list">
+        <div class="quick-row"><span class="quick-icon">1</span><div class="quick-copy"><strong>Envoi</strong><small>Recherche du même CODE_ENVOI dans les trois systèmes.</small></div></div>
+        <div class="quick-row"><span class="quick-icon">2</span><div class="quick-copy"><strong>Service</strong><small>Comparaison de ARTICLE pour chaque code d’envoi.</small></div></div>
+        <div class="quick-row"><span class="quick-icon">3</span><div class="quick-copy"><strong>Attribut</strong><small>Présence et valeur comparable sur les données configurées.</small></div></div>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panel-body"><div class="d-flex gap-3"><span class="metric-icon"><i class="bi bi-info-circle"></i></span><div><strong class="d-block mb-1">Après la détection</strong><p class="mb-0 text-secondary" style="font-size:11px;line-height:1.6">BAM Supervise propose un motif probable. Le superviseur reste responsable de la décision finale avant l’envoi de l’e-mail.</p></div></div></div>
+    </section>
+  </div>
+</div>
 {% endblock %}
