@@ -111,6 +111,7 @@ SECURE_HSTS_PRELOAD = os.getenv('DJANGO_HSTS_PRELOAD', '0') == '1'
 if os.getenv('DJANGO_BEHIND_HTTPS_PROXY', '0') == '1':
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
+# Professional application e-mail identity. Credentials remain in environment variables.
 EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
 EMAIL_HOST = os.getenv('EMAIL_HOST', 'localhost')
 EMAIL_PORT = int(os.getenv('EMAIL_PORT', '25'))
@@ -119,7 +120,14 @@ EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
 EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', '0') == '1'
 EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', '0') == '1'
 EMAIL_TIMEOUT = int(os.getenv('EMAIL_TIMEOUT', '20'))
-DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'bam-supervise@localhost')
+EMAIL_FROM_NAME = os.getenv('EMAIL_FROM_NAME', 'BAM Supervise').strip() or 'BAM Supervise'
+EMAIL_FROM_ADDRESS = os.getenv('EMAIL_FROM_ADDRESS', EMAIL_HOST_USER or 'bam-supervise@localhost').strip()
+EMAIL_REPLY_TO = os.getenv('EMAIL_REPLY_TO', '').strip()
+DEFAULT_FROM_EMAIL = os.getenv(
+    'DEFAULT_FROM_EMAIL',
+    f'{EMAIL_FROM_NAME} <{EMAIL_FROM_ADDRESS}>',
+)
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
 if EMAIL_USE_TLS and EMAIL_USE_SSL:
     raise ImproperlyConfigured('EMAIL_USE_TLS et EMAIL_USE_SSL ne peuvent pas être activés simultanément.')
 
