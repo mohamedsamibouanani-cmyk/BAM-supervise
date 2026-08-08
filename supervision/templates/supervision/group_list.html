@@ -1,2 +1,36 @@
 {% extends 'supervision/base.html' %}
-{% block content %}<h1 class="h3 mb-3">Groupes et collaborateurs</h1><div class="row g-3">{% for g in groups %}<div class="col-lg-4"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="d-flex justify-content-between"><div><h2 class="h5">{{ g.nom_groupe }}</h2><span class="badge text-bg-primary">{{ g.systeme.code_systeme }}</span></div><a class="btn btn-sm btn-outline-primary" href="{% url 'contact_add' g.pk %}">Ajouter email</a></div><hr>{% for c in g.contacts.all %}<div class="py-1"><strong>{{ c.nom_complet }}</strong><div class="small text-muted">{{ c.email }}</div></div>{% empty %}<p class="text-muted">Aucun collaborateur.</p>{% endfor %}</div></div></div>{% endfor %}</div>{% endblock %}
+{% block title %}Collaborateurs · BAM Supervise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-eyebrow"><i class="bi bi-people"></i> Affectation</div>
+    <h1 class="page-title">Groupes responsables</h1>
+    <p class="page-subtitle">Les collaborateurs ne disposent pas de compte dans BAM Supervise. Leurs adresses sont utilisées uniquement pour notifier le groupe responsable après validation.</p>
+  </div>
+</div>
+
+<div class="row g-3">
+{% for g in groups %}
+  <div class="col-xl-4 col-lg-6">
+    <section class="panel h-100">
+      <div class="panel-header">
+        <div><div class="d-flex align-items-center gap-2 mb-1"><span class="system-badge">{{ g.systeme.code_systeme }}</span>{% if g.actif %}<span class="status-badge status-RESOLUE">Actif</span>{% else %}<span class="status-badge status-DETECTEE">Inactif</span>{% endif %}</div><h2 class="panel-title mt-2">{{ g.nom_groupe }}</h2></div>
+        <a class="btn btn-sm btn-outline-primary" href="{% url 'contact_add' g.pk %}"><i class="bi bi-person-plus me-1"></i> Ajouter</a>
+      </div>
+      <div class="panel-body">
+        {% if g.description %}<p class="text-secondary" style="font-size:11px;line-height:1.55">{{ g.description }}</p>{% endif %}
+        {% if g.email_collectif %}<div class="p-3 rounded-3 bg-light mb-3"><div class="evidence-label">Adresse collective</div><span class="code">{{ g.email_collectif }}</span></div>{% endif %}
+        <div class="d-flex align-items-center justify-content-between mb-2"><span class="evidence-label mb-0">Collaborateurs</span><span class="system-badge">{{ g.contacts.count }} contact{{ g.contacts.count|pluralize }}</span></div>
+        <div class="quick-list">
+          {% for c in g.contacts.all %}
+            <div class="quick-row"><div class="user-avatar" style="background:#f2f4f7;color:#475467">{{ c.nom_complet|slice:':1'|upper }}</div><div class="quick-copy"><strong>{{ c.nom_complet }}</strong><small>{{ c.email }}{% if c.fonction %} · {{ c.fonction }}{% endif %}</small></div>{% if c.actif %}<i class="bi bi-check-circle-fill text-success" title="Actif"></i>{% else %}<i class="bi bi-dash-circle text-secondary" title="Inactif"></i>{% endif %}</div>
+          {% empty %}<div class="empty-state py-4"><div class="empty-icon"><i class="bi bi-person-plus"></i></div><h3>Aucun contact</h3><p>Ajoutez les adresses des collaborateurs de ce groupe pour permettre la notification.</p></div>{% endfor %}
+        </div>
+      </div>
+    </section>
+  </div>
+{% empty %}
+  <div class="col-12"><div class="panel"><div class="empty-state"><div class="empty-icon"><i class="bi bi-people"></i></div><h3>Aucun groupe configuré</h3><p>Initialisez les référentiels SMI, SICOM et SIBO avant de gérer les contacts.</p></div></div></div>
+{% endfor %}
+</div>
+{% endblock %}
