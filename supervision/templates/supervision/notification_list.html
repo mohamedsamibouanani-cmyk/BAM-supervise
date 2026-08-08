@@ -1,0 +1,46 @@
+{% extends 'supervision/base.html' %}
+{% block title %}Notifications · BAM Supervise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-eyebrow"><i class="bi bi-envelope-paper"></i> Action & routage</div>
+    <h1 class="page-title">Notifications</h1>
+    <p class="page-subtitle">Suivi des e-mails créés après validation du motif et du système à corriger, avec traçabilité du groupe et des destinataires.</p>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-4"><div class="metric-card metric-success"><div class="metric-top"><span class="metric-label">Envoyées</span><span class="metric-icon"><i class="bi bi-envelope-check"></i></span></div><strong class="metric-value">{{ sent_count }}</strong><div class="metric-foot">Envoi confirmé par le backend e-mail</div></div></div>
+  <div class="col-md-4"><div class="metric-card metric-warning"><div class="metric-top"><span class="metric-label">À envoyer</span><span class="metric-icon"><i class="bi bi-envelope"></i></span></div><strong class="metric-value">{{ pending_count }}</strong><div class="metric-foot">Messages encore en attente</div></div></div>
+  <div class="col-md-4"><div class="metric-card metric-danger"><div class="metric-top"><span class="metric-label">Échecs</span><span class="metric-icon"><i class="bi bi-envelope-exclamation"></i></span></div><strong class="metric-value">{{ failed_count }}</strong><div class="metric-foot">Envois à contrôler</div></div></div>
+</div>
+
+<form class="filter-bar" method="get">
+  <div class="filter-field"><label class="form-label">Statut</label><select class="form-select" name="statut"><option value="">Tous</option><option value="A_ENVOYER" {% if statut == 'A_ENVOYER' %}selected{% endif %}>À envoyer</option><option value="ENVOYEE" {% if statut == 'ENVOYEE' %}selected{% endif %}>Envoyée</option><option value="ECHEC" {% if statut == 'ECHEC' %}selected{% endif %}>Échec</option></select></div>
+  <div><button class="btn btn-light"><i class="bi bi-funnel me-1"></i> Filtrer</button></div>
+  {% if statut %}<div><a class="btn btn-link" href="{% url 'notification_list' %}">Réinitialiser</a></div>{% endif %}
+</form>
+
+<section class="panel">
+  <div class="panel-header"><div><h2 class="panel-title">Journal des messages</h2><p class="panel-subtitle">Le routage est effectué à partir de la validation finale</p></div></div>
+  {% if notifications %}
+  <div class="table-wrap"><table class="table table-hover">
+    <thead><tr><th>Date</th><th>Envoi</th><th>Motif final</th><th>Système</th><th>Groupe</th><th>Destinataires</th><th>Tentatives</th><th>Statut</th></tr></thead>
+    <tbody>
+    {% for n in notifications %}
+      <tr>
+        <td>{{ n.creee_le|date:'d/m/Y' }}<div class="text-secondary mt-1" style="font-size:10px">{{ n.creee_le|date:'H:i:s' }}</div></td>
+        <td><a class="code" href="{% url 'anomaly_detail' n.validation.anomalie.pk %}">{{ n.validation.anomalie.code_envoi }}</a></td>
+        <td>{{ n.validation.motif_final.libelle|truncatechars:45 }}</td>
+        <td><span class="system-badge">{{ n.validation.systeme_a_corriger_final.code_systeme }}</span></td>
+        <td>{{ n.groupe.nom_groupe }}</td>
+        <td><strong>{{ n.recipient_count }}</strong></td>
+        <td>{{ n.nb_tentatives }}</td>
+        <td>{% if n.statut == 'ENVOYEE' %}<span class="status-badge status-RESOLUE"><i class="bi bi-check-circle"></i> Envoyée</span>{% elif n.statut == 'ECHEC' %}<span class="status-badge status-DETECTEE"><i class="bi bi-x-circle"></i> Échec</span>{% else %}<span class="status-badge status-ANALYSEE">À envoyer</span>{% endif %}{% if n.erreur %}<div class="text-danger mt-1" style="font-size:10px">{{ n.erreur|truncatechars:65 }}</div>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<div class="empty-state"><div class="empty-icon"><i class="bi bi-envelope"></i></div><h3>Aucune notification</h3><p>Les messages apparaîtront ici après la validation d’une anomalie et son routage vers un groupe responsable.</p></div>{% endif %}
+</section>
+{% endblock %}
