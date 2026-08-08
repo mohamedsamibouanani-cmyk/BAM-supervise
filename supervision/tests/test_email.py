@@ -8,7 +8,10 @@ from supervision.models import (
 from supervision.services.notifications import send_validation_email
 
 
-@override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+@override_settings(
+    EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+    EMAIL_ALLOW_SIMULATED_DELIVERY=True,
+)
 class EmailWorkflowTests(TestCase):
     def setUp(self):
         self.user = Superviseur.objects.create_user(username='superviseur', password='secret12345')
