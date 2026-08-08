@@ -6,8 +6,8 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from openpyxl import Workbook
 
-from supervision.models import Systeme, Superviseur, ValeurAttributSnapshot
-from supervision.services.importer import import_excel
+from supervision.models import FichierImport, Systeme, Superviseur, ValeurAttributSnapshot
+from supervision.services.importer import ImportValidationError, import_excel
 from supervision.services.security import decrypt_file_bytes, decrypt_sensitive
 
 
@@ -53,3 +53,16 @@ class SecureImportTests(TestCase):
         self.assertEqual(decrypt_sensitive(value.valeur_brute), '+212600000000')
         self.assertTrue(value.valeur_normalisee.startswith('hmac:v1:'))
         self.assertNotIn('+212600000000', value.valeur_normalisee)
+
+    def test_invalid_workbook_is_encrypted_and_failure_is_audited(self):
+        raw = b'not-an-excel-workbook-sensitive-payload'
+        upload = SimpleUploadedFile('broken.xlsx', raw, content_type='application/octet-stream')
+        with self.assertRaises(ImportValidationError):
+            import_excel(upload, self.system, self.user)
+
+        record = FichierImport.objects.get(systeme=self.system)
+        self.assertEqual(record.statut_import, FichierImport.Statut.ECHEC)
+        self.assertTrue(record.message_erreur)
+        stored = Path(record.chemin_stockage).read_bytes()
+        self.assertTrue(stored.startswith(b'bamfile:v1:'))
+        self.assertEqual(decrypt_file_bytes(stored), raw)
