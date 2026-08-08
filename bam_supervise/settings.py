@@ -128,6 +128,8 @@ DEFAULT_FROM_EMAIL = os.getenv(
     f'{EMAIL_FROM_NAME} <{EMAIL_FROM_ADDRESS}>',
 )
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
+# Reserved for automated tests only. Keep at 0 in every real runtime.
+EMAIL_ALLOW_SIMULATED_DELIVERY = os.getenv('EMAIL_ALLOW_SIMULATED_DELIVERY', '0') == '1'
 if EMAIL_USE_TLS and EMAIL_USE_SSL:
     raise ImproperlyConfigured('EMAIL_USE_TLS et EMAIL_USE_SSL ne peuvent pas être activés simultanément.')
 
