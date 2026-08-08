@@ -7,10 +7,11 @@ from django.test import SimpleTestCase, override_settings
 class ProfessionalEmailIdentityTests(SimpleTestCase):
     @override_settings(
         EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+        EMAIL_ALLOW_SIMULATED_DELIVERY=True,
         DEFAULT_FROM_EMAIL='BAM Supervise <notifications@bam-supervise.ma>',
         EMAIL_REPLY_TO='support@bam-supervise.ma',
     )
-    def test_test_email_uses_professional_sender(self):
+    def test_test_email_uses_professional_sender_in_automated_test_mode(self):
         call_command('send_test_email', to='recipient@example.com')
         self.assertEqual(len(mail.outbox), 1)
         message = mail.outbox[0]
@@ -20,6 +21,17 @@ class ProfessionalEmailIdentityTests(SimpleTestCase):
 
     @override_settings(
         EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+        EMAIL_ALLOW_SIMULATED_DELIVERY=False,
+        DEFAULT_FROM_EMAIL='BAM Supervise <notifications@bam-supervise.ma>',
+        EMAIL_REPLY_TO='',
+    )
+    def test_test_email_rejects_locmem_backend_in_real_runtime(self):
+        with self.assertRaises(CommandError):
+            call_command('send_test_email', to='recipient@example.com')
+
+    @override_settings(
+        EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend',
+        EMAIL_ALLOW_SIMULATED_DELIVERY=False,
         DEFAULT_FROM_EMAIL='BAM Supervise <bam-supervise@localhost>',
         EMAIL_REPLY_TO='',
     )
@@ -29,6 +41,7 @@ class ProfessionalEmailIdentityTests(SimpleTestCase):
 
     @override_settings(
         EMAIL_BACKEND='django.core.mail.backends.console.EmailBackend',
+        EMAIL_ALLOW_SIMULATED_DELIVERY=False,
         DEFAULT_FROM_EMAIL='BAM Supervise <notifications@bam-supervise.ma>',
         EMAIL_REPLY_TO='',
     )
