@@ -4,19 +4,20 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#111827">
+  <meta name="theme-color" content="#244b9b">
   <title>{% block title %}BAM Supervise{% endblock %}</title>
   <link href="{% static 'vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet">
   <link href="{% static 'vendor/bootstrap-icons/bootstrap-icons.min.css' %}" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'supervision/app.css' %}">
+  <link rel="stylesheet" href="{% static 'supervision/bam-theme.css' %}">
   {% block head %}{% endblock %}
 </head>
 <body class="{% if user.is_authenticated %}bam-app{% else %}bam-auth{% endif %}">
 {% if user.is_authenticated %}
   <aside class="bam-sidebar d-none d-lg-flex">
     <a class="brand" href="{% url 'dashboard' %}">
-      <span class="brand-mark">BS</span>
-      <span><strong>BAM Supervise</strong><small>Control Center</small></span>
+      <span class="brand-mark">BAM</span>
+      <span><strong>BAM Supervise</strong><small>Poste Maroc · Supervision</small></span>
     </a>
 
     <div class="sidebar-section-label">Supervision</div>
@@ -44,7 +45,7 @@
 
   <div class="offcanvas offcanvas-start bam-mobile-menu" tabindex="-1" id="mobileNav">
     <div class="offcanvas-header">
-      <a class="brand text-decoration-none" href="{% url 'dashboard' %}"><span class="brand-mark">BS</span><span><strong>BAM Supervise</strong><small>Control Center</small></span></a>
+      <a class="brand text-decoration-none" href="{% url 'dashboard' %}"><span class="brand-mark">BAM</span><span><strong>BAM Supervise</strong><small>Poste Maroc · Supervision</small></span></a>
       <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas"></button>
     </div>
     <div class="offcanvas-body">
@@ -74,6 +75,7 @@
     </header>
 
     <main class="bam-content">
+      <div class="bam-brand-rule" aria-hidden="true"></div>
       {% for message in messages %}
         <div class="alert alert-{{ message.tags|default:'info' }} bam-alert alert-dismissible fade show" role="alert">
           {{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
