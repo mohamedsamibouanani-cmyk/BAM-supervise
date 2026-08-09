@@ -20,9 +20,9 @@ from supervision.models import (
     EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
     EMAIL_ALLOW_SIMULATED_DELIVERY=True,
     EMAIL_FROM_NAME='BAM Supervise',
-    EMAIL_FROM_ADDRESS='notifications@bam.test',
-    EMAIL_REPLY_TO='support@bam.test',
-    DEFAULT_FROM_EMAIL='BAM Supervise <notifications@bam.test>',
+    EMAIL_FROM_ADDRESS='mohamedsami.bouanani@uit.ac.ma',
+    EMAIL_REPLY_TO='mohamedsami.bouanani@uit.ac.ma',
+    DEFAULT_FROM_EMAIL='BAM Supervise <mohamedsami.bouanani@uit.ac.ma>',
 )
 class FiveCycleSupervisorEmailFlowTests(TestCase):
     RECIPIENT = 'mohamedsami.bouanani@uit.ac.ma'
@@ -47,7 +47,6 @@ class FiveCycleSupervisorEmailFlowTests(TestCase):
             groupe=self.group,
             nom_complet='Mohamed Sami Bouanani',
             email=self.RECIPIENT,
-            actif=True,
         )
         RegleAffectation.objects.create(
             systeme_a_corriger=self.smi,
@@ -69,7 +68,7 @@ class FiveCycleSupervisorEmailFlowTests(TestCase):
             empreinte_anomalie=f'{index:064x}',
         )
 
-    def test_supervisor_validation_sends_five_notifications_to_real_test_address(self):
+    def test_supervisor_validation_sends_five_notifications_to_registered_address(self):
         for cycle in range(1, 6):
             anomaly = self._make_anomaly(cycle)
             response = self.client.post(
@@ -95,8 +94,8 @@ class FiveCycleSupervisorEmailFlowTests(TestCase):
 
             message = mail.outbox[cycle - 1]
             self.assertIn(self.RECIPIENT, message.to, f'Cycle {cycle}: mauvaise adresse destinataire')
-            self.assertEqual(message.from_email, 'BAM Supervise <notifications@bam.test>')
-            self.assertEqual(message.reply_to, ['support@bam.test'])
+            self.assertEqual(message.from_email, 'BAM Supervise <mohamedsami.bouanani@uit.ac.ma>')
+            self.assertEqual(message.reply_to, [self.RECIPIENT])
             self.assertIn(f'EMAIL-CYCLE-{cycle:02d}', message.body)
             self.assertIn('Système à corriger : SMI', message.body)
 
