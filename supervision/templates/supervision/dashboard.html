@@ -7,7 +7,7 @@
   <div>
     <div class="page-eyebrow"><i class="bi bi-activity"></i> Centre de supervision</div>
     <h1 class="page-title">Tableau de bord opérationnel</h1>
-    <p class="page-subtitle">Vue consolidée des écarts de synchronisation entre SMI, SICOM et SIBO, de leur validation et de leur résolution.</p>
+    <p class="page-subtitle">Vue consolidée des écarts de synchronisation entre SMI, SICOM et SIBO, de leur validation, de leur notification et de leur résolution.</p>
   </div>
   <div class="page-actions">
     <a class="btn btn-light" href="{% url 'anomaly_list' %}"><i class="bi bi-list-check me-1"></i> Voir les anomalies</a>
@@ -19,17 +19,17 @@
   <div class="metric-card">
     <div class="metric-top"><span class="metric-label">Anomalies totales</span><span class="metric-icon"><i class="bi bi-database-check"></i></span></div>
     <strong class="metric-value">{{ total }}</strong>
-    <div class="metric-foot"><i class="bi bi-layers"></i> Tous niveaux confondus</div><span class="metric-accent"></span>
+    <div class="metric-foot"><i class="bi bi-layers"></i> Envoi · Service · Attribut</div><span class="metric-accent"></span>
   </div>
   <div class="metric-card metric-warning">
     <div class="metric-top"><span class="metric-label">À traiter</span><span class="metric-icon"><i class="bi bi-hourglass-split"></i></span></div>
     <strong class="metric-value">{{ ouvertes }}</strong>
     <div class="metric-foot"><i class="bi bi-person-check"></i> {{ a_valider }} en attente de validation</div>
   </div>
-  <div class="metric-card metric-danger">
-    <div class="metric-top"><span class="metric-label">Critiques ouvertes</span><span class="metric-icon"><i class="bi bi-shield-exclamation"></i></span></div>
-    <strong class="metric-value">{{ critiques }}</strong>
-    <div class="metric-foot"><i class="bi bi-exclamation-triangle"></i> Priorité de supervision</div>
+  <div class="metric-card">
+    <div class="metric-top"><span class="metric-label">Notifications envoyées</span><span class="metric-icon"><i class="bi bi-envelope-check"></i></span></div>
+    <strong class="metric-value">{{ notifications_envoyees }}</strong>
+    <div class="metric-foot"><i class="bi bi-diagram-3"></i> Routées vers les groupes responsables</div>
   </div>
   <div class="metric-card metric-success">
     <div class="metric-top"><span class="metric-label">Taux de résolution</span><span class="metric-icon"><i class="bi bi-check2-circle"></i></span></div>
@@ -42,7 +42,7 @@
   <section class="panel">
     <div class="panel-header">
       <div><h2 class="panel-title">Activité des 7 derniers jours</h2><p class="panel-subtitle">Nouvelles anomalies détectées par jour</p></div>
-      <span class="status-badge status-ANALYSEE"><i class="bi bi-graph-up"></i> Temps réel DB</span>
+      <span class="status-badge status-ANALYSEE"><i class="bi bi-graph-up"></i> Données de supervision</span>
     </div>
     <div class="panel-body"><div class="chart-shell"><canvas id="trendChart"></canvas></div></div>
   </section>
@@ -69,14 +69,13 @@
       {% if recentes %}
       <div class="table-wrap">
         <table class="table table-hover">
-          <thead><tr><th>Envoi</th><th>Niveau</th><th>Système</th><th>Gravité</th><th>Statut</th><th></th></tr></thead>
+          <thead><tr><th>Envoi</th><th>Niveau</th><th>Système observé</th><th>Statut</th><th></th></tr></thead>
           <tbody>
           {% for a in recentes %}
             <tr>
-              <td><span class="code">{{ a.code_envoi }}</span><div class="text-secondary mt-1" style="font-size:10px">{{ a.type_ecart }}</div></td>
+              <td><span class="code">{{ a.code_envoi }}</span><div class="text-secondary mt-1" style="font-size:10px">{{ a.get_type_ecart_display }}</div></td>
               <td><span class="level-badge level-{{ a.niveau }}">{{ a.get_niveau_display }}</span></td>
               <td>{% if a.systeme_ecart %}<span class="system-badge">{{ a.systeme_ecart.code_systeme }}</span>{% else %}<span class="text-secondary">Multiple</span>{% endif %}</td>
-              <td><span class="severity-badge severity-{{ a.gravite }}">{{ a.get_gravite_display }}</span></td>
               <td><span class="status-badge status-{{ a.statut }}">{{ a.get_statut_display }}</span></td>
               <td><a class="table-action" href="{% url 'anomaly_detail' a.pk %}">Ouvrir <i class="bi bi-chevron-right"></i></a></td>
             </tr>
@@ -91,11 +90,11 @@
   </div>
   <div class="col-xl-4">
     <section class="panel h-100">
-      <div class="panel-header"><div><h2 class="panel-title">État opérationnel</h2><p class="panel-subtitle">Campagnes et notifications</p></div></div>
+      <div class="panel-header"><div><h2 class="panel-title">État opérationnel</h2><p class="panel-subtitle">Campagnes, validations et notifications</p></div></div>
       <div class="panel-body quick-list">
         <div class="quick-row"><span class="quick-icon"><i class="bi bi-cloud-check"></i></span><div class="quick-copy"><strong>Dernière campagne</strong><small>{% if latest_campaign %}{{ latest_campaign.demarree_le|date:'d/m/Y H:i' }} · {{ latest_campaign.get_statut_display }}{% else %}Aucune campagne exécutée{% endif %}</small></div><span class="quick-value">{% if latest_campaign %}#{{ latest_campaign.pk }}{% else %}—{% endif %}</span></div>
         <div class="quick-row"><span class="quick-icon"><i class="bi bi-envelope-check"></i></span><div class="quick-copy"><strong>Notifications envoyées</strong><small>Messages routés vers les groupes responsables</small></div><span class="quick-value">{{ notifications_envoyees }}</span></div>
-        <div class="quick-row"><span class="quick-icon"><i class="bi bi-envelope-exclamation"></i></span><div class="quick-copy"><strong>Échecs de notification</strong><small>À contrôler avant la prochaine relance</small></div><span class="quick-value">{{ notifications_echec }}</span></div>
+        <div class="quick-row"><span class="quick-icon"><i class="bi bi-envelope-exclamation"></i></span><div class="quick-copy"><strong>Échecs de notification</strong><small>Relance disponible depuis Notifications</small></div><span class="quick-value">{{ notifications_echec }}</span></div>
         <div class="quick-row"><span class="quick-icon"><i class="bi bi-person-check"></i></span><div class="quick-copy"><strong>Décisions attendues</strong><small>Détectées ou analysées, non encore validées</small></div><span class="quick-value">{{ a_valider }}</span></div>
       </div>
     </section>
