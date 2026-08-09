@@ -6,6 +6,8 @@
   Chart.defaults.font.family = 'Inter, ui-sans-serif, system-ui, sans-serif';
   Chart.defaults.color = '#667085';
   const grid = '#eef0f3';
+  const bamBlue = '#244b9b';
+  const bamYellow = '#ffdc00';
 
   const trend = document.getElementById('trendChart');
   if (trend) {
@@ -16,12 +18,14 @@
         datasets: [{
           label: 'Anomalies',
           data: data.trend.values,
-          borderColor: '#a31f34',
-          backgroundColor: 'rgba(163,31,52,.08)',
+          borderColor: bamBlue,
+          backgroundColor: 'rgba(36,75,155,.09)',
           fill: true,
           tension: .38,
           pointRadius: 3,
           pointHoverRadius: 5,
+          pointBackgroundColor: bamYellow,
+          pointBorderColor: bamBlue,
           borderWidth: 2,
         }],
       },
@@ -46,7 +50,7 @@
         labels: data.levels.labels,
         datasets: [{
           data: data.levels.values,
-          backgroundColor: ['#a31f34', '#475467', '#98a2b3'],
+          backgroundColor: [bamBlue, bamYellow, '#6f8dcc'],
           borderWidth: 0,
           hoverOffset: 5,
         }],
