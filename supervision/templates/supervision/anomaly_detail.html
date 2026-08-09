@@ -18,7 +18,6 @@
       <span class="code" style="font-size:18px">{{ anomaly.code_envoi }}</span>
       <span class="level-badge level-{{ anomaly.niveau }}">{{ anomaly.get_niveau_display }}</span>
       <span class="status-badge status-{{ anomaly.statut }}">{{ anomaly.get_statut_display }}</span>
-      <span class="severity-badge severity-{{ anomaly.gravite }}">{{ anomaly.get_gravite_display }}</span>
     </div>
     <div class="detail-meta">
       <span><i class="bi bi-diagram-3"></i> Écart : <strong>{{ anomaly.get_type_ecart_display }}</strong></span>
