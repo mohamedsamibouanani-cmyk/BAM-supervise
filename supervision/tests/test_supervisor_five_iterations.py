@@ -64,6 +64,7 @@ class SupervisorFiveIterationsFunctionalTests(TestCase):
     def test_main_supervisor_workflow_runs_five_times(self):
         for cycle in range(1, 6):
             # Navigation accessible au superviseur.
+            pages = {}
             for page in (
                 'dashboard',
                 'campaign_list',
@@ -73,10 +74,21 @@ class SupervisorFiveIterationsFunctionalTests(TestCase):
                 'group_list',
                 'activity_list',
             ):
-                self._assert_page(page, cycle)
+                pages[page] = self._assert_page(page, cycle)
+
+            # Les règles métier décidées restent visibles dans l'interface.
+            self.assertNotContains(pages['dashboard'], 'Critiques ouvertes')
+            self.assertNotContains(pages['anomaly_list'], '>Gravité<', html=False)
+            self.assertNotContains(pages['anomaly_list'], '>Critiques<', html=False)
+            self.assertNotContains(pages['group_list'], 'Désactiver')
+            self.assertNotContains(pages['group_list'], 'Réactiver')
 
             # Ajout d'un collaborateur sans notion actif/inactif.
             email = f'collaborateur{cycle}@example.ma'
+            add_page = self.client.get(reverse('contact_add', args=[self.group.pk]))
+            self.assertEqual(add_page.status_code, 200)
+            self.assertNotContains(add_page, 'name="actif"')
+
             add_response = self.client.post(
                 reverse('contact_add', args=[self.group.pk]),
                 {
@@ -111,7 +123,8 @@ class SupervisorFiveIterationsFunctionalTests(TestCase):
                 systeme_ecart=self.sibo,
                 empreinte_anomalie=f'f{cycle:063x}',
             )
-            self._assert_page('anomaly_detail', cycle, pk=anomaly.pk)
+            anomaly_detail = self._assert_page('anomaly_detail', cycle, pk=anomaly.pk)
+            self.assertNotContains(anomaly_detail, '>Gravité<', html=False)
             self._assert_page('anomaly_validate', cycle, pk=anomaly.pk)
 
             # Validation humaine du motif + système à corriger => notification groupe SMI.
