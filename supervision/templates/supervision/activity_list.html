@@ -3,19 +3,31 @@
 {% block content %}
 <div class="page-header">
   <div>
-    <div class="page-eyebrow"><i class="bi bi-shield-check"></i> Gouvernance</div>
-    <h1 class="page-title">Journal des activités</h1>
-    <p class="page-subtitle">Traçabilité des actions sensibles réalisées dans BAM Supervise : campagnes, validations, gestion des collaborateurs et opérations de gouvernance.</p>
+    <div class="page-eyebrow"><i class="bi bi-journal-check"></i> Gouvernance & traçabilité</div>
+    <h1 class="page-title">Activités</h1>
+    <p class="page-subtitle">Journal opérationnel des actions réalisées dans BAM Supervise : campagnes, validations de motifs, gestion des collaborateurs et relances de notifications.</p>
   </div>
   <div class="page-actions">
-    <span class="system-badge"><i class="bi bi-journal-check me-1"></i>{{ total_audit }} événement{{ total_audit|pluralize }}</span>
+    <a class="btn btn-light" href="?{% if query_without_page %}{{ query_without_page }}&{% endif %}export=csv"><i class="bi bi-file-earmark-spreadsheet me-1"></i> Export CSV</a>
   </div>
+</div>
+
+<div class="activity-kpis">
+  <div class="activity-card"><span class="label">Événements affichés</span><span class="value">{{ total_audit }}</span><span class="hint">Selon les filtres appliqués</span></div>
+  <div class="activity-card"><span class="label">Aujourd’hui</span><span class="value">{{ today_count }}</span><span class="hint">Actions journalisées ce jour</span></div>
+  <div class="activity-card"><span class="label">Validations de motif</span><span class="value">{{ validation_count }}</span><span class="hint">Décisions enregistrées par le superviseur</span></div>
+  <div class="activity-card"><span class="label">Notifications</span><span class="value">{{ notification_sent_count }}</span><span class="hint">Envoyées · {{ notification_failed_count }} en échec</span></div>
+</div>
+
+<div class="bam-section-note mb-3">
+  <i class="bi bi-shield-check"></i>
+  <div>Ce journal présente uniquement des faits réellement enregistrés par l’application. Il n’ajoute ni criticité d’anomalie ni statut actif/inactif aux collaborateurs.</div>
 </div>
 
 <form class="filter-bar" method="get">
   <div class="filter-field search">
     <label class="form-label">Recherche</label>
-    <input class="form-control" type="search" name="q" value="{{ filters.q }}" placeholder="Action, entité ou identifiant">
+    <input class="form-control" type="search" name="q" value="{{ filters.q }}" placeholder="Action, entité, identifiant ou superviseur">
   </div>
   <div class="filter-field">
     <label class="form-label">Action</label>
@@ -31,39 +43,67 @@
       {% for value in entities %}<option value="{{ value }}" {% if filters.entite == value %}selected{% endif %}>{{ value }}</option>{% endfor %}
     </select>
   </div>
-  <div><button class="btn btn-light"><i class="bi bi-funnel me-1"></i>Filtrer</button></div>
-  {% if filters.q or filters.action or filters.entite %}<div><a class="btn btn-link" href="{% url 'activity_list' %}">Réinitialiser</a></div>{% endif %}
+  <div class="filter-field">
+    <label class="form-label">Du</label>
+    <input class="form-control" type="date" name="date_from" value="{{ filters.date_from }}">
+  </div>
+  <div class="filter-field">
+    <label class="form-label">Au</label>
+    <input class="form-control" type="date" name="date_to" value="{{ filters.date_to }}">
+  </div>
+  <div><button class="btn btn-primary" type="submit"><i class="bi bi-funnel me-1"></i>Filtrer</button></div>
+  {% if filters.q or filters.action or filters.entite or filters.date_from or filters.date_to %}<div><a class="btn btn-light" href="{% url 'activity_list' %}"><i class="bi bi-x-lg me-1"></i>Réinitialiser</a></div>{% endif %}
 </form>
 
 <section class="panel">
   <div class="panel-header">
-    <div><h2 class="panel-title">Historique d'audit</h2><p class="panel-subtitle">Consultation uniquement — les événements sont écrits par les opérations métier.</p></div>
+    <div><h2 class="panel-title">Chronologie des opérations</h2><p class="panel-subtitle">{{ collaborator_count }} collaborateur{{ collaborator_count|pluralize }} enregistré{{ collaborator_count|pluralize }} · {{ campaign_count }} campagne{{ campaign_count|pluralize }}</p></div>
+    {% if page_obj.paginator.num_pages > 1 %}<span class="system-badge">Page {{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>{% endif %}
   </div>
   {% if activities %}
-  <div class="table-wrap">
-    <table class="table table-hover">
-      <thead><tr><th>Date</th><th>Action</th><th>Entité</th><th>ID</th><th>Superviseur</th><th>Adresse IP</th><th>Évolution</th></tr></thead>
-      <tbody>
-      {% for a in activities %}
-        <tr>
-          <td>{{ a.cree_le|date:'d/m/Y' }}<div class="text-secondary mt-1" style="font-size:10px">{{ a.cree_le|date:'H:i:s' }}</div></td>
-          <td><span class="status-badge status-ANALYSEE">{{ a.action }}</span></td>
-          <td><span class="code">{{ a.entite }}</span></td>
-          <td>#{{ a.id_entite }}</td>
-          <td>{{ a.superviseur.nom_complet|default:a.superviseur.username|default:'Système' }}</td>
-          <td>{{ a.adresse_ip|default:'—' }}</td>
-          <td style="min-width:260px">
-            {% if a.anciennes_valeurs %}<div class="small text-secondary"><strong>Avant :</strong> {{ a.anciennes_valeurs }}</div>{% endif %}
-            {% if a.nouvelles_valeurs %}<div class="small"><strong>Après :</strong> {{ a.nouvelles_valeurs }}</div>{% endif %}
-            {% if not a.anciennes_valeurs and not a.nouvelles_valeurs %}<span class="text-secondary">—</span>{% endif %}
-          </td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+  <div class="activity-feed">
+    {% for a in activities %}
+      <article class="activity-event">
+        <div class="activity-event-icon {% if 'EMAIL' in a.action or a.entite == 'notification' %}is-mail{% elif a.entite == 'contact_groupe' %}is-contact{% elif a.entite == 'campagne_supervision' %}is-campaign{% endif %}">
+          {% if 'EMAIL' in a.action or a.entite == 'notification' %}<i class="bi bi-envelope-paper"></i>
+          {% elif a.entite == 'contact_groupe' %}<i class="bi bi-person-vcard"></i>
+          {% elif a.entite == 'campagne_supervision' %}<i class="bi bi-cloud-check"></i>
+          {% elif a.entite == 'validation_motif' %}<i class="bi bi-check2-square"></i>
+          {% else %}<i class="bi bi-journal-text"></i>{% endif %}
+        </div>
+        <div class="activity-event-main">
+          <div class="activity-event-title">
+            <span>{{ a.action }}</span>
+            <span class="activity-pill {% if 'EMAIL' in a.action or a.entite == 'notification' %}mail{% elif a.entite == 'contact_groupe' %}contact{% elif a.entite == 'campagne_supervision' %}campaign{% endif %}">{{ a.entite }}</span>
+            <span class="text-secondary">#{{ a.id_entite }}</span>
+          </div>
+          <div class="activity-event-meta">
+            <i class="bi bi-person me-1"></i>{{ a.superviseur.nom_complet|default:a.superviseur.username|default:'Système' }}
+            {% if a.adresse_ip %}<span class="mx-2">·</span><i class="bi bi-pc-display me-1"></i>{{ a.adresse_ip }}{% endif %}
+          </div>
+          {% if a.anciennes_valeurs or a.nouvelles_valeurs %}
+            <div class="activity-event-change">
+              {% if a.anciennes_valeurs %}<div><strong>Avant :</strong> {{ a.anciennes_valeurs }}</div>{% endif %}
+              {% if a.nouvelles_valeurs %}<div class="{% if a.anciennes_valeurs %}mt-1{% endif %}"><strong>Après :</strong> {{ a.nouvelles_valeurs }}</div>{% endif %}
+            </div>
+          {% endif %}
+        </div>
+        <div class="activity-event-time"><strong>{{ a.cree_le|date:'d/m/Y' }}</strong><br>{{ a.cree_le|date:'H:i:s' }}</div>
+      </article>
+    {% endfor %}
   </div>
   {% else %}
-  <div class="empty-state"><div class="empty-icon"><i class="bi bi-journal"></i></div><h3>Aucune activité trouvée</h3><p>Les actions de supervision apparaîtront ici dès qu'elles seront journalisées.</p></div>
+  <div class="empty-state"><div class="empty-icon"><i class="bi bi-journal"></i></div><h3>Aucune activité trouvée</h3><p>Aucun événement ne correspond aux critères sélectionnés.</p></div>
   {% endif %}
 </section>
+
+{% if page_obj.paginator.num_pages > 1 %}
+<nav class="mt-3" aria-label="Pagination des activités">
+  <ul class="pagination justify-content-center mb-0">
+    <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}"><a class="page-link" href="?{% if query_without_page %}{{ query_without_page }}&{% endif %}page={% if page_obj.has_previous %}{{ page_obj.previous_page_number }}{% else %}1{% endif %}">Précédent</a></li>
+    <li class="page-item active"><span class="page-link">{{ page_obj.number }}</span></li>
+    <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}"><a class="page-link" href="?{% if query_without_page %}{{ query_without_page }}&{% endif %}page={% if page_obj.has_next %}{{ page_obj.next_page_number }}{% else %}{{ page_obj.number }}{% endif %}">Suivant</a></li>
+  </ul>
+</nav>
+{% endif %}
 {% endblock %}
