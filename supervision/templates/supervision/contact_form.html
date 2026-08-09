@@ -3,15 +3,18 @@
 {% block content %}
 <div class="page-header">
   <div>
-    <div class="page-eyebrow"><a href="{% url 'group_list' %}"><i class="bi bi-arrow-left"></i> Groupes responsables</a></div>
+    <div class="page-eyebrow"><a href="{% url 'group_list' %}"><i class="bi bi-arrow-left"></i> Collaborateurs</a></div>
     <h1 class="page-title">{% if mode == 'edit' %}Modifier le collaborateur{% else %}Ajouter un collaborateur{% endif %}</h1>
-    <p class="page-subtitle">Le contact est rattaché au groupe {{ group.nom_groupe }} du système {{ group.systeme.code_systeme }}. Il ne dispose d’aucun compte applicatif.</p>
+    <p class="page-subtitle">Le contact est rattaché au groupe {{ group.nom_groupe }} du système {{ group.systeme.code_systeme }}. Il ne dispose d’aucun compte applicatif ; son adresse sert à la notification du groupe concerné.</p>
   </div>
 </div>
 <div class="row justify-content-center">
   <div class="col-xl-7 col-lg-8">
     <section class="panel">
-      <div class="panel-header"><div><h2 class="panel-title">Coordonnées du destinataire</h2><p class="panel-subtitle">{% if mode == 'edit' %}Modifiez les coordonnées ou désactivez le contact sans supprimer l’historique.{% else %}Cette personne recevra uniquement les notifications de son groupe.{% endif %}</p></div><span class="system-badge">{{ group.systeme.code_systeme }}</span></div>
+      <div class="panel-header">
+        <div><h2 class="panel-title">Coordonnées du destinataire</h2><p class="panel-subtitle">{% if mode == 'edit' %}Modifiez le nom, l’adresse e-mail ou la fonction du collaborateur.{% else %}Cette adresse recevra les notifications attribuées à ce système après validation du superviseur.{% endif %}</p></div>
+        <span class="system-badge">{{ group.systeme.code_systeme }}</span>
+      </div>
       <div class="panel-body">
         <form method="post">{% csrf_token %}{{ form.as_p }}
           <div class="d-flex justify-content-end gap-2 pt-2"><a class="btn btn-light" href="{% url 'group_list' %}">Annuler</a><button class="btn btn-primary" type="submit"><i class="bi {% if mode == 'edit' %}bi-save{% else %}bi-person-plus{% endif %} me-1"></i> {% if mode == 'edit' %}Enregistrer{% else %}Ajouter l’adresse{% endif %}</button></div>
