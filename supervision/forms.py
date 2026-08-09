@@ -39,8 +39,6 @@ class CampaignImportForm(forms.Form):
                 self.add_error(key, 'Le fichier dépasse la taille maximale autorisée de 20 Mo.')
                 continue
 
-            # Do not trust the filename alone. Validate the container signature before
-            # Pandas/OpenPyXL/xlrd parse attacker-controlled bytes.
             position = uploaded.tell()
             header = uploaded.read(8)
             uploaded.seek(position)
@@ -109,10 +107,9 @@ class ValidationMotifForm(forms.Form):
 class ContactGroupeForm(forms.ModelForm):
     class Meta:
         model = ContactGroupe
-        fields = ['nom_complet', 'email', 'fonction', 'actif']
+        fields = ['nom_complet', 'email', 'fonction']
         widgets = {
             'nom_complet': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Nom du collaborateur'}),
             'email': forms.EmailInput(attrs={'class': 'form-control', 'placeholder': 'prenom.nom@example.ma'}),
             'fonction': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Fonction ou spécialité'}),
-            'actif': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }
