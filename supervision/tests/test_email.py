@@ -34,6 +34,19 @@ class EmailWorkflowTests(TestCase):
         self.anomaly.refresh_from_db()
         self.assertEqual(self.anomaly.statut, 'NOTIFIEE')
 
+    def test_legacy_active_flag_does_not_exclude_registered_collaborator(self):
+        self.contact.actif = False
+        self.contact.save(update_fields=['actif'])
+
+        notification = send_validation_email(self.validation)
+
+        self.assertEqual(notification.statut, Notification.Statut.ENVOYEE)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('collab@example.com', mail.outbox[0].to)
+        self.assertTrue(
+            notification.destinataires.filter(email_snapshot='collab@example.com').exists()
+        )
+
     @override_settings(
         EMAIL_BACKEND='django.core.mail.backends.console.EmailBackend',
         EMAIL_ALLOW_SIMULATED_DELIVERY=False,
