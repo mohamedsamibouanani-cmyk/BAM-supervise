@@ -1,5 +1,5 @@
 from django.contrib.auth import authenticate
-from django.test import Client, TestCase, override_settings
+from django.test import Client, TestCase
 from django.urls import reverse
 
 from supervision.models import (
@@ -32,24 +32,9 @@ class ApplicationSecurityTests(TestCase):
             'nom_complet': 'Contact CSRF',
             'email': 'csrf@example.com',
             'fonction': 'Test',
-            'actif': 'on',
         })
         self.assertEqual(response.status_code, 403)
         self.assertFalse(ContactGroupe.objects.filter(email='csrf@example.com').exists())
-
-    def test_csrf_is_required_for_collaborator_activation_change(self):
-        contact = ContactGroupe.objects.create(
-            groupe=self.group,
-            nom_complet='Contact protégé',
-            email='protected@example.com',
-            actif=True,
-        )
-        client = Client(enforce_csrf_checks=True)
-        client.force_login(self.user)
-        response = client.post(reverse('contact_toggle', args=[contact.pk]))
-        self.assertEqual(response.status_code, 403)
-        contact.refresh_from_db()
-        self.assertTrue(contact.actif)
 
     def test_template_autoescape_blocks_stored_xss(self):
         ContactGroupe.objects.create(
@@ -105,22 +90,23 @@ class ApplicationSecurityTests(TestCase):
     def test_new_supervisor_password_uses_argon2(self):
         self.assertTrue(self.user.password.startswith('argon2$'), self.user.password.split('$', 1)[0])
 
-    def test_collaborator_update_is_audited_and_can_deactivate(self):
+    def test_collaborator_update_is_audited_without_business_activity_status(self):
         contact = ContactGroupe.objects.create(
             groupe=self.group,
-            nom_complet='Contact actif',
-            email='active@example.com',
-            actif=True,
+            nom_complet='Contact SMI',
+            email='contact@example.com',
         )
         self.client.force_login(self.user)
         response = self.client.post(reverse('contact_edit', args=[contact.pk]), {
-            'nom_complet': 'Contact actif',
-            'email': 'active@example.com',
+            'nom_complet': 'Contact SMI modifié',
+            'email': 'contact.updated@example.com',
             'fonction': 'Exploitation',
         })
         self.assertEqual(response.status_code, 302)
         contact.refresh_from_db()
-        self.assertFalse(contact.actif)
+        self.assertEqual(contact.nom_complet, 'Contact SMI modifié')
+        self.assertEqual(contact.email, 'contact.updated@example.com')
         audit = JournalAudit.objects.filter(action='UPDATE', entite='contact_groupe', id_entite=contact.pk).latest('cree_le')
-        self.assertTrue(audit.anciennes_valeurs['actif'])
-        self.assertFalse(audit.nouvelles_valeurs['actif'])
+        self.assertNotIn('actif', audit.anciennes_valeurs)
+        self.assertNotIn('actif', audit.nouvelles_valeurs)
+        self.assertEqual(audit.nouvelles_valeurs['fonction'], 'Exploitation')
