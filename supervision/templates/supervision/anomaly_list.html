@@ -5,15 +5,15 @@
   <div>
     <div class="page-eyebrow"><i class="bi bi-exclamation-diamond"></i> Supervision des écarts</div>
     <h1 class="page-title">Anomalies</h1>
-    <p class="page-subtitle">Les écarts détectés restent séparés de leur motif probable : le moteur observe d’abord l’absence ou la différence, puis l’analyse propose une explication.</p>
+    <p class="page-subtitle">Les écarts détectés restent séparés de leur motif probable : le moteur observe d’abord l’absence ou la différence, puis l’analyse propose une explication à valider par le superviseur.</p>
   </div>
   <div class="page-actions"><a class="btn btn-primary" href="{% url 'campaign_create' %}"><i class="bi bi-cloud-arrow-up me-1"></i> Nouvelle campagne</a></div>
 </div>
 
 <div class="row g-3 mb-3">
   <div class="col-md-4"><div class="metric-card"><div class="metric-top"><span class="metric-label">Résultats affichés</span><span class="metric-icon"><i class="bi bi-list-check"></i></span></div><strong class="metric-value">{{ filtered_total }}</strong></div></div>
-  <div class="col-md-4"><div class="metric-card metric-warning"><div class="metric-top"><span class="metric-label">Ouvertes</span><span class="metric-icon"><i class="bi bi-hourglass-split"></i></span></div><strong class="metric-value">{{ filtered_open }}</strong></div></div>
-  <div class="col-md-4"><div class="metric-card metric-danger"><div class="metric-top"><span class="metric-label">Critiques</span><span class="metric-icon"><i class="bi bi-shield-exclamation"></i></span></div><strong class="metric-value">{{ filtered_critical }}</strong></div></div>
+  <div class="col-md-4"><div class="metric-card metric-warning"><div class="metric-top"><span class="metric-label">À traiter</span><span class="metric-icon"><i class="bi bi-hourglass-split"></i></span></div><strong class="metric-value">{{ filtered_open }}</strong></div></div>
+  <div class="col-md-4"><div class="metric-card metric-success"><div class="metric-top"><span class="metric-label">Résolues</span><span class="metric-icon"><i class="bi bi-check2-circle"></i></span></div><strong class="metric-value">{{ filtered_resolved }}</strong></div></div>
 </div>
 
 <form class="filter-bar" method="get">
@@ -21,16 +21,15 @@
   <div class="filter-field"><label class="form-label">Niveau</label><select class="form-select" name="niveau"><option value="">Tous</option><option value="ENVOI" {% if filters.niveau == 'ENVOI' %}selected{% endif %}>Envoi</option><option value="SERVICE" {% if filters.niveau == 'SERVICE' %}selected{% endif %}>Service</option><option value="ATTRIBUT" {% if filters.niveau == 'ATTRIBUT' %}selected{% endif %}>Attribut</option></select></div>
   <div class="filter-field"><label class="form-label">Statut</label><select class="form-select" name="statut"><option value="">Tous</option><option value="DETECTEE" {% if filters.statut == 'DETECTEE' %}selected{% endif %}>Détectée</option><option value="ANALYSEE" {% if filters.statut == 'ANALYSEE' %}selected{% endif %}>Analysée</option><option value="VALIDEE" {% if filters.statut == 'VALIDEE' %}selected{% endif %}>Validée</option><option value="NOTIFIEE" {% if filters.statut == 'NOTIFIEE' %}selected{% endif %}>Notifiée</option><option value="RESOLUE" {% if filters.statut == 'RESOLUE' %}selected{% endif %}>Résolue</option><option value="PERSISTANTE" {% if filters.statut == 'PERSISTANTE' %}selected{% endif %}>Persistante</option></select></div>
   <div class="filter-field"><label class="form-label">Système de l’écart</label><select class="form-select" name="systeme"><option value="">Tous</option>{% for s in systems %}<option value="{{ s.code_systeme }}" {% if filters.systeme == s.code_systeme %}selected{% endif %}>{{ s.code_systeme }}</option>{% endfor %}</select></div>
-  <div class="filter-field"><label class="form-label">Gravité</label><select class="form-select" name="gravite"><option value="">Toutes</option><option value="CRITIQUE" {% if filters.gravite == 'CRITIQUE' %}selected{% endif %}>Critique</option><option value="HAUTE" {% if filters.gravite == 'HAUTE' %}selected{% endif %}>Haute</option><option value="MOYENNE" {% if filters.gravite == 'MOYENNE' %}selected{% endif %}>Moyenne</option><option value="FAIBLE" {% if filters.gravite == 'FAIBLE' %}selected{% endif %}>Faible</option></select></div>
   <div><button class="btn btn-primary" type="submit"><i class="bi bi-funnel me-1"></i> Appliquer</button></div>
-  {% if filters %}<div><a class="btn btn-light" href="{% url 'anomaly_list' %}"><i class="bi bi-x-lg me-1"></i> Effacer</a></div>{% endif %}
+  {% if filters.q or filters.niveau or filters.statut or filters.systeme %}<div><a class="btn btn-light" href="{% url 'anomaly_list' %}"><i class="bi bi-x-lg me-1"></i> Effacer</a></div>{% endif %}
 </form>
 
 <section class="panel">
   <div class="panel-header"><div><h2 class="panel-title">Registre des écarts</h2><p class="panel-subtitle">Maximum 500 lignes affichées · triées de la plus récente à la plus ancienne</p></div></div>
   {% if anomalies %}
   <div class="table-wrap"><table class="table table-hover">
-    <thead><tr><th>Code envoi</th><th>Niveau</th><th>Objet concerné</th><th>Écart</th><th>Système</th><th>Gravité</th><th>Statut</th><th>Détection</th><th></th></tr></thead>
+    <thead><tr><th>Code envoi</th><th>Niveau</th><th>Objet concerné</th><th>Écart</th><th>Système observé</th><th>Statut</th><th>Détection</th><th></th></tr></thead>
     <tbody>
     {% for a in anomalies %}
       <tr>
@@ -39,7 +38,6 @@
         <td>{% if a.niveau == 'SERVICE' %}<span class="code">{{ a.code_service|default:'-' }}</span>{% elif a.niveau == 'ATTRIBUT' %}<span class="code">{{ a.attribut.code_attribut|default:'-' }}</span>{% else %}<span class="text-secondary">Envoi complet</span>{% endif %}</td>
         <td>{{ a.get_type_ecart_display }}</td>
         <td>{% if a.systeme_ecart %}<span class="system-badge">{{ a.systeme_ecart.code_systeme }}</span>{% else %}<span class="text-secondary">Non unique</span>{% endif %}</td>
-        <td><span class="severity-badge severity-{{ a.gravite }}">{{ a.get_gravite_display }}</span></td>
         <td><span class="status-badge status-{{ a.statut }}">{{ a.get_statut_display }}</span></td>
         <td>{{ a.detectee_le|date:'d/m/Y' }}<div class="text-secondary mt-1" style="font-size:10px">{{ a.detectee_le|date:'H:i' }}</div></td>
         <td><a class="table-action" href="{% url 'anomaly_detail' a.pk %}">Analyser <i class="bi bi-chevron-right"></i></a></td>
