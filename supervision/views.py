@@ -38,7 +38,6 @@ def dashboard(request):
     total = anomalies.count()
     resolues = anomalies.filter(statut=Anomalie.Statut.RESOLUE).count()
     ouvertes = anomalies.exclude(statut=Anomalie.Statut.RESOLUE).count()
-    critiques = anomalies.exclude(statut=Anomalie.Statut.RESOLUE).filter(gravite=Anomalie.Gravite.CRITIQUE).count()
     a_valider = anomalies.filter(statut__in=[Anomalie.Statut.DETECTEE, Anomalie.Statut.ANALYSEE]).count()
     taux_resolution = round((resolues / total * 100), 1) if total else 0
 
@@ -79,7 +78,6 @@ def dashboard(request):
         'total': total,
         'ouvertes': ouvertes,
         'resolues': resolues,
-        'critiques': critiques,
         'a_valider': a_valider,
         'taux_resolution': taux_resolution,
         'campagnes': CampagneSupervision.objects.order_by('-demarree_le')[:5],
@@ -141,7 +139,7 @@ def campaign_create(request):
 @login_required
 def anomaly_list(request):
     qs = Anomalie.objects.select_related('systeme_ecart', 'attribut', 'campagne').order_by('-detectee_le')
-    for field in ('niveau', 'type_ecart', 'statut', 'gravite'):
+    for field in ('niveau', 'type_ecart', 'statut'):
         value = request.GET.get(field, '').strip()
         if value:
             qs = qs.filter(**{field: value})
@@ -158,13 +156,13 @@ def anomaly_list(request):
 
     filtered_total = qs.count()
     filtered_open = qs.exclude(statut=Anomalie.Statut.RESOLUE).count()
-    filtered_critical = qs.filter(gravite=Anomalie.Gravite.CRITIQUE).count()
+    filtered_resolved = qs.filter(statut=Anomalie.Statut.RESOLUE).count()
     context = {
         'anomalies': qs[:500],
         'systems': Systeme.objects.all(),
         'filtered_total': filtered_total,
         'filtered_open': filtered_open,
-        'filtered_critical': filtered_critical,
+        'filtered_resolved': filtered_resolved,
         'filters': request.GET,
     }
     return render(request, 'supervision/anomaly_list.html', context)
@@ -243,7 +241,10 @@ def anomaly_validate(request, pk):
                 source_evenement='SUPERVISEUR', superviseur=request.user,
                 commentaire=f'Motif final: {validation.motif_final.libelle}',
             )
-            _audit(request, 'VALIDATE', 'validation_motif', validation.pk, {'motif': validation.motif_final.code_motif})
+            _audit(request, 'VALIDATE', 'validation_motif', validation.pk, {
+                'motif': validation.motif_final.code_motif,
+                'systeme_a_corriger': validation.systeme_a_corriger_final.code_systeme,
+            })
             try:
                 send_validation_email(validation)
                 messages.success(request, 'Motif validé et e-mail envoyé au groupe responsable.')
@@ -302,7 +303,10 @@ def contact_add(request, group_id):
             contact.groupe = group
             contact.save()
             _audit(request, 'CREATE', 'contact_groupe', contact.pk, {
-                'email': contact.email, 'systeme': group.systeme.code_systeme, 'actif': contact.actif,
+                'email': contact.email,
+                'nom': contact.nom_complet,
+                'fonction': contact.fonction,
+                'systeme': group.systeme.code_systeme,
             })
             messages.success(request, f'Adresse {contact.email} ajoutée au groupe {group.nom_groupe}.')
             return redirect('group_list')
@@ -319,7 +323,6 @@ def contact_edit(request, contact_id):
         'nom_complet': contact.nom_complet,
         'email': contact.email,
         'fonction': contact.fonction,
-        'actif': contact.actif,
     }
     if request.method == 'POST':
         form = ContactGroupeForm(request.POST, instance=contact)
@@ -329,7 +332,6 @@ def contact_edit(request, contact_id):
                 'nom_complet': contact.nom_complet,
                 'email': contact.email,
                 'fonction': contact.fonction,
-                'actif': contact.actif,
             }
             _audit(request, 'UPDATE', 'contact_groupe', contact.pk, after, before)
             messages.success(request, f'Collaborateur {contact.nom_complet} mis à jour.')
