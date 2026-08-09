@@ -71,6 +71,8 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r requirements.txt
+      - name: Superviseur - 5 iterations fonctionnelles explicites
+        run: python manage.py test supervision.tests.test_supervisor_five_iterations
       - name: Full Django test suite
         run: python manage.py test
 
@@ -113,6 +115,8 @@ jobs:
           python manage.py seed_bam
           python manage.py protect_sensitive_data
           python manage.py check
+      - name: Five supervisor iterations on MySQL
+        run: python manage.py test supervision.tests.test_supervisor_five_iterations
       - name: Full tests on MySQL
         run: python manage.py test
 
@@ -142,9 +146,11 @@ jobs:
           docker compose ps
           docker compose logs web
           exit 1
-      - name: Verify local CSS and vendor assets
+      - name: Verify BAM identity and local assets
         run: |
           curl -fsS http://127.0.0.1:8000/static/supervision/app.css | grep -q -- '--mit-red'
+          curl -fsS http://127.0.0.1:8000/static/supervision/bam-theme.css | grep -q -- '--bam-blue:#244b9b'
+          curl -fsS http://127.0.0.1:8000/static/supervision/bam-theme.css | grep -q -- '--bam-yellow:#ffdc00'
           curl -fsS http://127.0.0.1:8000/static/supervision/dashboard.js | grep -q 'trendChart'
           curl -fsS http://127.0.0.1:8000/static/vendor/bootstrap/bootstrap.min.css | grep -qi 'bootstrap'
           curl -fsS http://127.0.0.1:8000/static/vendor/chart/chart.umd.min.js | grep -q 'Chart'
