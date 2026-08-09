@@ -40,7 +40,10 @@ def route_group(validation):
     ).select_related('groupe').order_by('priorite').first()
     if rule:
         return rule.groupe
-    fallback = GroupeResponsable.objects.filter(systeme=validation.systeme_a_corriger_final, actif=True).order_by('id').first()
+    fallback = GroupeResponsable.objects.filter(
+        systeme=validation.systeme_a_corriger_final,
+        actif=True,
+    ).order_by('id').first()
     if fallback:
         return fallback
     raise RoutingError('Aucun groupe responsable configuré pour le système à corriger.')
@@ -60,7 +63,8 @@ def build_email(validation, group):
         f'Motif validé : {validation.motif_final.libelle}\n'
         f'Système à corriger : {validation.systeme_a_corriger_final.code_systeme}\n'
         f'Commentaire : {validation.commentaire or "-"}\n\n'
-        f'Merci de corriger la donnée dans le système concerné. La résolution sera vérifiée lors du prochain import.\n\n'
+        f'Merci de corriger la donnée dans le système concerné. '
+        f'La résolution sera vérifiée lors du prochain import.\n\n'
         f'BAM Supervise'
     )
     return subject, body
@@ -68,12 +72,18 @@ def build_email(validation, group):
 
 def send_validation_email(validation):
     group = route_group(validation)
-    contacts = list(group.contacts.filter(actif=True))
-    emails = [c.email for c in contacts]
+
+    # Tous les collaborateurs enregistrés pour le groupe sont destinataires.
+    # BAM Supervise ne maintient pas de statut métier actif/inactif des collaborateurs.
+    contacts = list(group.contacts.all().order_by('id'))
+    emails = []
+    for contact in contacts:
+        if contact.email and contact.email not in emails:
+            emails.append(contact.email)
     if group.email_collectif and group.email_collectif not in emails:
         emails.append(group.email_collectif)
     if not emails:
-        raise RoutingError('Le groupe responsable ne possède aucune adresse e-mail active.')
+        raise RoutingError('Le groupe responsable ne possède aucune adresse e-mail enregistrée.')
 
     subject, body = build_email(validation, group)
 
@@ -88,6 +98,8 @@ def send_validation_email(validation):
         )
         rows = []
         for c in contacts:
+            if not c.email:
+                continue
             rows.append(NotificationDestinataire.objects.create(
                 notification=notification,
                 contact=c,
