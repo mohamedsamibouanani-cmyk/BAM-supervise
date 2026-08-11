@@ -109,6 +109,13 @@ def _diagnostic_evidence(rule, anomaly):
                     'champ': rule.attribut.code_attribut,
                     'constat': 'Format source non conforme',
                 })
+    elif rule.type_controle == 'DIFFERENCE':
+        for detail in anomaly.details.select_related('systeme').all():
+            evidence.append({
+                'systeme': detail.systeme.code_systeme,
+                'champ': anomaly.attribut.code_attribut if anomaly.attribut_id else 'ATTRIBUT',
+                'constat': f'Valeur observée : {detail.valeur_brute or "—"}',
+            })
     return evidence
 
 
