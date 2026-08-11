@@ -330,7 +330,6 @@ class Anomalie(models.Model):
 
     class TypeEcart(models.TextChoices):
         ABSENT = 'ABSENT', 'Absent'
-        DIFFERENT = 'DIFFERENT', 'Différent'
 
     class Statut(models.TextChoices):
         DETECTEE = 'DETECTEE', 'Détectée'
@@ -364,8 +363,8 @@ class Anomalie(models.Model):
         constraints = [models.UniqueConstraint(fields=['campagne', 'empreinte_anomalie'], name='uq_campagne_empreinte_anomalie')]
 
     def clean(self):
-        if self.niveau in {self.Niveau.ENVOI, self.Niveau.SERVICE} and self.type_ecart != self.TypeEcart.ABSENT:
-            raise ValidationError('Les niveaux ENVOI et SERVICE utilisent uniquement ABSENT.')
+        if self.type_ecart != self.TypeEcart.ABSENT:
+            raise ValidationError('BAM Supervise détecte uniquement les éléments absents.')
         if self.niveau != self.Niveau.ATTRIBUT and self.attribut_id:
             raise ValidationError('Un attribut ne doit être renseigné qu’au niveau ATTRIBUT.')
 
@@ -405,10 +404,11 @@ class ModeleML(models.Model):
 class PredictionMotif(models.Model):
     class Source(models.TextChoices):
         REGLE = 'REGLE', 'Règle métier'
+        APPRENTISSAGE = 'APPRENTISSAGE', 'Cas appris'
         ML = 'ML', 'Machine learning'
 
     anomalie = models.ForeignKey(Anomalie, on_delete=models.CASCADE, related_name='predictions')
-    source_prediction = models.CharField(max_length=10, choices=Source.choices)
+    source_prediction = models.CharField(max_length=20, choices=Source.choices)
     modele = models.ForeignKey(ModeleML, null=True, blank=True, on_delete=models.RESTRICT)
     regle = models.ForeignKey(RegleMetier, null=True, blank=True, on_delete=models.RESTRICT)
     motif = models.ForeignKey(Motif, on_delete=models.RESTRICT)
