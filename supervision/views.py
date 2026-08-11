@@ -39,17 +39,15 @@ def dashboard(request):
     resolues = anomalies.filter(statut=Anomalie.Statut.RESOLUE).count()
     ouvertes = anomalies.exclude(statut=Anomalie.Statut.RESOLUE).count()
     a_valider = anomalies.filter(statut__in=[Anomalie.Statut.DETECTEE, Anomalie.Statut.ANALYSEE]).count()
+    en_suivi = anomalies.filter(
+        statut__in=[Anomalie.Statut.VALIDEE, Anomalie.Statut.NOTIFIEE, Anomalie.Statut.PERSISTANTE]
+    ).count()
     taux_resolution = round((resolues / total * 100), 1) if total else 0
 
     level_counts = {row['niveau']: row['total'] for row in anomalies.values('niveau').annotate(total=Count('id'))}
-    system_counts = {
-        row['systeme_ecart__code_systeme']: row['total']
-        for row in anomalies.exclude(systeme_ecart__isnull=True)
-        .values('systeme_ecart__code_systeme').annotate(total=Count('id'))
-    }
-
     today = timezone.localdate()
     first_day = today - timedelta(days=6)
+    nouvelles_aujourdhui = anomalies.filter(detectee_le__date=today).count()
     trend_rows = (
         anomalies.filter(detectee_le__date__gte=first_day)
         .annotate(day=TruncDate('detectee_le'))
@@ -63,28 +61,35 @@ def dashboard(request):
             'labels': [day.strftime('%d/%m') for day in trend_days],
             'values': [trend_map.get(day, 0) for day in trend_days],
         },
-        'levels': {
-            'labels': ['Envoi', 'Service', 'Attribut'],
-            'values': [level_counts.get('ENVOI', 0), level_counts.get('SERVICE', 0), level_counts.get('ATTRIBUT', 0)],
-        },
-        'systems': {
-            'labels': ['SMI', 'SICOM', 'SIBO'],
-            'values': [system_counts.get('SMI', 0), system_counts.get('SICOM', 0), system_counts.get('SIBO', 0)],
-        },
     }
 
-    latest_campaign = CampagneSupervision.objects.order_by('-demarree_le').first()
+    campaign_queryset = CampagneSupervision.objects.annotate(
+        import_count=Count('imports', distinct=True),
+    ).order_by('-demarree_le')
+    latest_campaign = campaign_queryset.first()
     context = {
         'total': total,
         'ouvertes': ouvertes,
         'resolues': resolues,
         'a_valider': a_valider,
+        'en_suivi': en_suivi,
+        'nouvelles_aujourdhui': nouvelles_aujourdhui,
         'taux_resolution': taux_resolution,
-        'campagnes': CampagneSupervision.objects.order_by('-demarree_le')[:5],
+        'campagnes': campaign_queryset[:4],
+        'campagnes_echec': CampagneSupervision.objects.filter(statut=CampagneSupervision.Statut.ECHEC).count(),
         'latest_campaign': latest_campaign,
-        'recentes': anomalies.select_related('systeme_ecart', 'attribut').order_by('-detectee_le')[:8],
+        'prioritaires': (
+            anomalies.filter(statut__in=[Anomalie.Statut.DETECTEE, Anomalie.Statut.ANALYSEE])
+            .select_related('systeme_ecart', 'attribut')
+            .order_by('detectee_le')[:5]
+        ),
         'notifications_envoyees': Notification.objects.filter(statut=Notification.Statut.ENVOYEE).count(),
         'notifications_echec': Notification.objects.filter(statut=Notification.Statut.ECHEC).count(),
+        'level_counts': {
+            'envoi': level_counts.get('ENVOI', 0),
+            'service': level_counts.get('SERVICE', 0),
+            'attribut': level_counts.get('ATTRIBUT', 0),
+        },
         'dashboard_data': dashboard_data,
     }
     return render(request, 'supervision/dashboard.html', context)
