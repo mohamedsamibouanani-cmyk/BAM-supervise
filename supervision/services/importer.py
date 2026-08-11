@@ -1,6 +1,7 @@
 from io import BytesIO
 from pathlib import Path
 from decimal import Decimal, InvalidOperation
+import re
 import pandas as pd
 from django.conf import settings
 from django.db import transaction
@@ -33,6 +34,34 @@ def _decimal_projection(normalized):
         return Decimal(normalized)
     except (InvalidOperation, ValueError):
         return None
+
+
+def _source_format_is_valid(raw_value, definition):
+    """Validate source syntax without comparing values between systems."""
+    text = clean_text(raw_value)
+    if not text:
+        return None
+    if definition.type_valeur == AttributDefinition.TypeValeur.NOMBRE:
+        compact = text.replace('\u00a0', '').replace(' ', '')
+        # One decimal convention is accepted. Mixing comma and dot is ambiguous
+        # and is surfaced as a possible cause of non-synchronisation.
+        if ',' in compact and '.' in compact:
+            return False
+        candidate = compact.replace(',', '.')
+        try:
+            Decimal(candidate)
+            return True
+        except (InvalidOperation, ValueError):
+            return False
+    if definition.type_valeur == AttributDefinition.TypeValeur.DATE:
+        return not pd.isna(pd.to_datetime(text, errors='coerce'))
+    code = definition.code_attribut.upper()
+    if 'TELEPHONE' in code:
+        digits = re.sub(r'[^0-9]', '', text)
+        return 8 <= len(digits) <= 15 and not re.search(r'[A-Za-z]', text)
+    if any(token in code for token in ('VILLE', 'PAYS', 'DES_ARTICLE', 'LIBELLE')):
+        return not text.isdigit() and any(char.isalpha() for char in text)
+    return True
 
 
 def import_excel(uploaded_file, systeme, superviseur):
@@ -168,5 +197,5 @@ def _create_value(envoi, service, definition, raw_value):
         valeur_normalisee=stored_comparable,
         valeur_numerique=numeric_projection,
         est_vide=(normalized == ''),
-        format_source_conforme=None,
+        format_source_conforme=_source_format_is_valid(raw_value, definition),
     )
