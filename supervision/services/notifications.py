@@ -57,12 +57,22 @@ def build_email(validation, group):
         if indices and indices[0].get('champ'):
             diagnostic_field = indices[0]['champ']
     subject = f'[BAM Supervise] {anomaly.niveau} {anomaly.type_ecart} - {anomaly.code_envoi}'
+    if anomaly.type_ecart == Anomalie.TypeEcart.DIFFERENT:
+        gap_description = 'Valeurs observées : ' + ' ; '.join(
+            f'{detail.systeme.code_systeme}={detail.valeur_brute or "—"}'
+            for detail in anomaly.details.select_related('systeme').order_by('systeme__ordre_comparaison')
+        )
+    else:
+        gap_description = (
+            'Système où l’élément manque : '
+            f'{anomaly.systeme_ecart.code_systeme if anomaly.systeme_ecart_id else "-"}'
+        )
     body = (
         f'Bonjour,\n\n'
         f'BAM Supervise a détecté une anomalie de synchronisation.\n\n'
         f'Code envoi : {anomaly.code_envoi}\n'
         f'Élément non synchronisé : {element}\n'
-        f'Système où l’élément manque : {anomaly.systeme_ecart.code_systeme if anomaly.systeme_ecart_id else "-"}\n'
+        f'{gap_description}\n'
         f'Service : {anomaly.code_service or "-"}\n'
         f'Attribut : {anomaly.attribut.code_attribut if anomaly.attribut_id else "-"}\n'
         f'Motif validé : {validation.motif_final.libelle}\n'
