@@ -57,3 +57,29 @@ class OperationalDashboardTests(TestCase):
 
         self.assertContains(response, 'Aucune décision en attente')
         self.assertContains(response, 'File de traitement vide')
+
+    def test_dashboard_trend_compares_detection_and_resolution_on_same_period(self):
+        detected = self._anomaly('TREND', Anomalie.Statut.RESOLUE)
+        yesterday = timezone.now() - timedelta(days=1)
+        Anomalie.objects.filter(pk=detected.pk).update(
+            detectee_le=yesterday,
+            cloturee_le=timezone.now(),
+        )
+
+        response = self.client.get(reverse('dashboard'))
+
+        self.assertEqual(response.context['trend_detected_total'], 1)
+        self.assertEqual(response.context['trend_resolved_total'], 1)
+        self.assertEqual(response.context['trend_balance'], 0)
+        self.assertTrue(response.context['trend_has_activity'])
+        self.assertEqual(sum(response.context['dashboard_data']['trend']['detected']), 1)
+        self.assertEqual(sum(response.context['dashboard_data']['trend']['resolved']), 1)
+        self.assertContains(response, 'Activité sur 7 jours')
+        self.assertNotContains(response, f'{response.context["total"]} au total')
+
+    def test_dashboard_trend_has_an_explicit_empty_state(self):
+        response = self.client.get(reverse('dashboard'))
+
+        self.assertFalse(response.context['trend_has_activity'])
+        self.assertContains(response, 'Aucune activité sur cette période')
+        self.assertNotContains(response, 'id="trendChart"')
