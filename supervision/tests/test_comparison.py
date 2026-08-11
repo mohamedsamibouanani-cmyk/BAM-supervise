@@ -1,8 +1,8 @@
 from django.test import TestCase
 
 from supervision.models import (
-    CampagneImport, CampagneSupervision, EnvoiSnapshot, FichierImport,
-    Systeme, Superviseur,
+    AttributDefinition, CampagneImport, CampagneSupervision, EnvoiSnapshot,
+    FichierImport, Systeme, Superviseur, ValeurAttributSnapshot,
 )
 from supervision.services.comparison import run_campaign
 from supervision.services.utils import stable_hash
@@ -36,3 +36,26 @@ class ComparisonTests(TestCase):
         anomaly = campaign.anomalies.get(niveau='ENVOI')
         self.assertEqual(anomaly.systeme_ecart.code_systeme, 'SICOM')
         self.assertEqual(anomaly.type_ecart, 'ABSENT')
+
+    def test_different_attribute_values_do_not_create_anomaly(self):
+        campaign = CampagneSupervision.objects.create(superviseur=self.user)
+        files = {code: self._file(code) for code in self.systems}
+        city = AttributDefinition.objects.create(
+            code_attribut='VILLE', libelle='Ville', portee='ENVOI', type_valeur='TEXTE'
+        )
+        for index, (code, value) in enumerate(zip(self.systems, ('RABAT', 'CASABLANCA', 'TANGER')), 1):
+            CampagneImport.objects.create(
+                campagne=campaign, systeme=self.systems[code], fichier_import=files[code]
+            )
+            shipment = EnvoiSnapshot.objects.create(
+                fichier_import=files[code], code_envoi='E-DIFF', org_commerciale='2000',
+                ligne_premiere=2, empreinte_envoi=stable_hash(code, 'E-DIFF'),
+            )
+            ValeurAttributSnapshot.objects.create(
+                envoi_snapshot=shipment, attribut=city, valeur_brute=value,
+                valeur_normalisee=value, est_vide=False, format_source_conforme=True,
+            )
+
+        run_campaign(campaign)
+
+        self.assertEqual(campaign.anomalies.count(), 0)
