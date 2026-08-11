@@ -11,15 +11,18 @@ _XLS_SIGNATURE = b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'
 
 class CampaignImportForm(forms.Form):
     fichier_smi = forms.FileField(
-        label='Fichier SMI (.xlsx/.xls)',
+        label='Fichier SMI',
+        error_messages={'required': 'Le fichier SMI est manquant.'},
         widget=forms.ClearableFileInput(attrs={'class': 'form-control', 'accept': '.xlsx,.xls'}),
     )
     fichier_sicom = forms.FileField(
-        label='Fichier SICOM (.xlsx/.xls)',
+        label='Fichier SICOM',
+        error_messages={'required': 'Le fichier SICOM est manquant.'},
         widget=forms.ClearableFileInput(attrs={'class': 'form-control', 'accept': '.xlsx,.xls'}),
     )
     fichier_sibo = forms.FileField(
-        label='Fichier SIBO (.xlsx/.xls)',
+        label='Fichier SIBO',
+        error_messages={'required': 'Le fichier SIBO est manquant.'},
         widget=forms.ClearableFileInput(attrs={'class': 'form-control', 'accept': '.xlsx,.xls'}),
     )
 
@@ -62,6 +65,15 @@ class ValidationMotifForm(forms.Form):
         queryset=Motif.objects.filter(actif=True), required=False, label='Motif final',
         widget=forms.Select(attrs={'class': 'form-select'}),
     )
+    nouveau_motif = forms.CharField(
+        required=False,
+        max_length=255,
+        label='Nouveau motif',
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Décrivez la cause si aucune proposition ne convient',
+        }),
+    )
     systeme_a_corriger_final = forms.ModelChoiceField(
         queryset=Systeme.objects.filter(actif=True), label='Système à corriger',
         widget=forms.Select(attrs={'class': 'form-select'}),
@@ -86,6 +98,7 @@ class ValidationMotifForm(forms.Form):
         prediction = cleaned.get('prediction')
         decision = cleaned.get('decision')
         motif = cleaned.get('motif_final')
+        nouveau_motif = (cleaned.get('nouveau_motif') or '').strip()
         systeme = cleaned.get('systeme_a_corriger_final')
         if prediction:
             if not motif:
@@ -97,8 +110,10 @@ class ValidationMotifForm(forms.Form):
             if not unknown:
                 raise forms.ValidationError('Le motif MOTIF_INCONNU doit être initialisé.')
             cleaned['motif_final'] = unknown
-        if not cleaned.get('motif_final'):
-            raise forms.ValidationError('Sélectionnez un motif final ou une prédiction.')
+        elif nouveau_motif:
+            cleaned['motif_final'] = None
+        if not cleaned.get('motif_final') and not nouveau_motif:
+            raise forms.ValidationError('Sélectionnez un motif proposé ou saisissez un nouveau motif.')
         if not cleaned.get('systeme_a_corriger_final'):
             raise forms.ValidationError('Sélectionnez le système à corriger.')
         return cleaned
