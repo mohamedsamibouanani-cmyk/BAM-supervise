@@ -7,29 +7,22 @@ from supervision.models import (
     Anomalie, GroupeResponsable, HistoriqueAnomalie, Notification,
     NotificationDestinataire, RegleAffectation,
 )
+from supervision.services.email_config import (
+    EmailConfigurationError,
+    validate_real_email_config,
+)
 
 
 class RoutingError(ValueError):
     pass
 
 
-SIMULATED_EMAIL_BACKENDS = {
-    'django.core.mail.backends.console.EmailBackend',
-    'django.core.mail.backends.locmem.EmailBackend',
-    'django.core.mail.backends.dummy.EmailBackend',
-    'django.core.mail.backends.filebased.EmailBackend',
-}
-
-
 def _ensure_real_delivery_backend():
     """Prevent a simulated backend from being recorded as a real delivered notification."""
-    if settings.EMAIL_BACKEND in SIMULATED_EMAIL_BACKENDS and not getattr(
-        settings, 'EMAIL_ALLOW_SIMULATED_DELIVERY', False
-    ):
-        raise RoutingError(
-            'La messagerie est encore en mode test. Configurez un serveur SMTP réel '
-            'pour envoyer des notifications aux collaborateurs.'
-        )
+    try:
+        validate_real_email_config()
+    except EmailConfigurationError as exc:
+        raise RoutingError(str(exc)) from exc
 
 
 def route_group(validation):
@@ -51,16 +44,29 @@ def route_group(validation):
 
 def build_email(validation, group):
     anomaly = validation.anomalie
+    if anomaly.niveau == Anomalie.Niveau.ENVOI:
+        element = f'Envoi {anomaly.code_envoi}'
+    elif anomaly.niveau == Anomalie.Niveau.SERVICE:
+        element = f'Service {anomaly.code_service} de l’envoi {anomaly.code_envoi}'
+    else:
+        element = f'Attribut {anomaly.attribut.code_attribut if anomaly.attribut_id else "-"} de l’envoi {anomaly.code_envoi}'
+    diagnostic_field = validation.motif_final.champ_typique or '-'
+    if validation.prediction_retenue_id:
+        explanation = validation.prediction_retenue.explication or {}
+        indices = explanation.get('indices') or []
+        if indices and indices[0].get('champ'):
+            diagnostic_field = indices[0]['champ']
     subject = f'[BAM Supervise] {anomaly.niveau} {anomaly.type_ecart} - {anomaly.code_envoi}'
     body = (
         f'Bonjour,\n\n'
         f'BAM Supervise a détecté une anomalie de synchronisation.\n\n'
         f'Code envoi : {anomaly.code_envoi}\n'
-        f'Niveau : {anomaly.niveau}\n'
-        f'Type d\'écart : {anomaly.type_ecart}\n'
+        f'Élément non synchronisé : {element}\n'
+        f'Système où l’élément manque : {anomaly.systeme_ecart.code_systeme if anomaly.systeme_ecart_id else "-"}\n'
         f'Service : {anomaly.code_service or "-"}\n'
         f'Attribut : {anomaly.attribut.code_attribut if anomaly.attribut_id else "-"}\n'
         f'Motif validé : {validation.motif_final.libelle}\n'
+        f'Champ source à vérifier : {diagnostic_field}\n'
         f'Système à corriger : {validation.systeme_a_corriger_final.code_systeme}\n'
         f'Commentaire : {validation.commentaire or "-"}\n\n'
         f'Merci de corriger la donnée dans le système concerné. '
