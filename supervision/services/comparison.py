@@ -1,4 +1,3 @@
-from collections import Counter
 from django.db import transaction
 from django.utils import timezone
 
@@ -140,15 +139,10 @@ def _compare_attribute_maps(campaign, systems, code_envoi, service_code, values)
                 details = _attribute_details(systems, vals, miss)
                 _create_anomaly(campaign, 'ATTRIBUT', 'ABSENT', code_envoi, systems, details, code_service=service_code, attribute=attr, gap_system=systems[miss])
             continue
-        normalized = {s: (vals[s].valeur_normalisee or '') for s in systems if vals[s]}
-        unique = set(normalized.values())
-        if len(unique) > 1:
-            counts = Counter(normalized.values())
-            majority = counts.most_common(1)[0][0] if counts else None
-            divergent = [s for s, v in normalized.items() if v != majority] if list(counts.values()).count(max(counts.values())) == 1 else []
-            gap_system = systems[divergent[0]] if len(divergent) == 1 else None
-            details = _attribute_details(systems, vals, divergent[0] if len(divergent) == 1 else None)
-            _create_anomaly(campaign, 'ATTRIBUT', 'DIFFERENT', code_envoi, systems, details, code_service=service_code, attribute=attr, gap_system=gap_system)
+        # BAM Supervise contrôle la synchronisation structurelle. Une valeur présente
+        # dans les trois systèmes, même différente, ne constitue pas une anomalie.
+        # La qualité de la donnée source est analysée uniquement pour expliquer la
+        # non-synchronisation d'un envoi, service ou attribut absent.
 
 
 def _attribute_details(systems, vals, gap_code=None):
