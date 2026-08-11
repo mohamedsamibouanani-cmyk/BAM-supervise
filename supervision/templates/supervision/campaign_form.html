@@ -1,72 +1,131 @@
 {% extends 'supervision/base.html' %}
-{% block title %}Nouvelle campagne · BAM Supervise{% endblock %}
+{% block title %}Nouvelle campagne | BAM Supervise{% endblock %}
 {% block content %}
-<div class="page-header">
+<div class="page-header campaign-heading">
   <div>
-    <div class="page-eyebrow"><i class="bi bi-cloud-arrow-up"></i> Ingestion</div>
-    <h1 class="page-title">Nouvelle campagne de supervision</h1>
-    <p class="page-subtitle">Importez une photographie de chaque système. La comparaison ne démarre que lorsque les trois fichiers SMI, SICOM et SIBO sont disponibles et valides.</p>
+    <h1 class="page-title">Nouvelle campagne</h1>
+    <p class="page-subtitle">Ajoutez les trois fichiers pour démarrer la comparaison.</p>
   </div>
-  <div class="page-actions"><a class="btn btn-light" href="{% url 'campaign_list' %}"><i class="bi bi-clock-history me-1"></i> Historique</a></div>
-</div>
-
-<div class="row g-3">
-  <div class="col-xl-8">
-    <section class="panel">
-      <div class="panel-header"><div><h2 class="panel-title">Sélection des fichiers</h2><p class="panel-subtitle">Formats Excel .xlsx ou .xls · filtre métier ORG_COMMERCIALE = 2000</p></div><span class="system-badge">3 fichiers requis</span></div>
-      <div class="panel-body">
-        <form method="post" enctype="multipart/form-data">{% csrf_token %}
-          {% if form.non_field_errors %}<div class="alert alert-danger">{{ form.non_field_errors }}</div>{% endif %}
-          <div class="row g-3">
-            <div class="col-lg-4">
-              <div class="file-drop h-100">
-                <div class="d-flex align-items-center justify-content-between mb-3"><span class="system-badge">SMI</span><i class="bi bi-file-earmark-spreadsheet fs-4 text-secondary"></i></div>
-                <label class="form-label" for="{{ form.fichier_smi.id_for_label }}">Fichier source SMI</label>
-                {{ form.fichier_smi }}
-                {% if form.fichier_smi.errors %}<div class="text-danger mt-2 small">{{ form.fichier_smi.errors }}</div>{% endif %}
-                <div class="text-secondary mt-2" style="font-size:10px">Ancien système · photographie à comparer</div>
-              </div>
-            </div>
-            <div class="col-lg-4">
-              <div class="file-drop h-100">
-                <div class="d-flex align-items-center justify-content-between mb-3"><span class="system-badge">SICOM</span><i class="bi bi-file-earmark-spreadsheet fs-4 text-secondary"></i></div>
-                <label class="form-label" for="{{ form.fichier_sicom.id_for_label }}">Fichier source SICOM</label>
-                {{ form.fichier_sicom }}
-                {% if form.fichier_sicom.errors %}<div class="text-danger mt-2 small">{{ form.fichier_sicom.errors }}</div>{% endif %}
-                <div class="text-secondary mt-2" style="font-size:10px">Système cible · photographie à comparer</div>
-              </div>
-            </div>
-            <div class="col-lg-4">
-              <div class="file-drop h-100">
-                <div class="d-flex align-items-center justify-content-between mb-3"><span class="system-badge">SIBO</span><i class="bi bi-file-earmark-spreadsheet fs-4 text-secondary"></i></div>
-                <label class="form-label" for="{{ form.fichier_sibo.id_for_label }}">Fichier source SIBO</label>
-                {{ form.fichier_sibo }}
-                {% if form.fichier_sibo.errors %}<div class="text-danger mt-2 small">{{ form.fichier_sibo.errors }}</div>{% endif %}
-                <div class="text-secondary mt-2" style="font-size:10px">Back office · photographie à comparer</div>
-              </div>
-            </div>
-          </div>
-          <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mt-4 pt-3 border-top">
-            <div class="text-secondary" style="font-size:11px"><i class="bi bi-shield-check me-1"></i> Les fichiers sont conservés pour assurer la traçabilité de la campagne.</div>
-            <button class="btn btn-primary" type="submit"><i class="bi bi-play-fill me-1"></i> Importer et lancer la comparaison</button>
-          </div>
-        </form>
-      </div>
-    </section>
-  </div>
-
-  <div class="col-xl-4">
-    <section class="panel mb-3">
-      <div class="panel-header"><div><h2 class="panel-title">Contrôles exécutés</h2><p class="panel-subtitle">Pipeline déterministe en trois niveaux</p></div></div>
-      <div class="panel-body quick-list">
-        <div class="quick-row"><span class="quick-icon">1</span><div class="quick-copy"><strong>Envoi</strong><small>Recherche du même CODE_ENVOI dans les trois systèmes.</small></div></div>
-        <div class="quick-row"><span class="quick-icon">2</span><div class="quick-copy"><strong>Service</strong><small>Comparaison de ARTICLE pour chaque code d’envoi.</small></div></div>
-        <div class="quick-row"><span class="quick-icon">3</span><div class="quick-copy"><strong>Attribut</strong><small>Présence et valeur comparable sur les données configurées.</small></div></div>
-      </div>
-    </section>
-    <section class="panel">
-      <div class="panel-body"><div class="d-flex gap-3"><span class="metric-icon"><i class="bi bi-info-circle"></i></span><div><strong class="d-block mb-1">Après la détection</strong><p class="mb-0 text-secondary" style="font-size:11px;line-height:1.6">BAM Supervise propose un motif probable. Le superviseur reste responsable de la décision finale avant l’envoi de l’e-mail.</p></div></div></div>
-    </section>
+  <div class="page-actions">
+    <a class="btn btn-light" href="{% url 'campaign_list' %}">
+      <i class="bi bi-clock-history me-1" aria-hidden="true"></i> Historique
+    </a>
   </div>
 </div>
+
+<section class="campaign-import-shell" aria-labelledby="campaign-import-title">
+  <div class="campaign-import-topbar">
+    <div class="campaign-import-title">
+      <span class="campaign-import-icon"><i class="bi bi-cloud-arrow-up-fill" aria-hidden="true"></i></span>
+      <div>
+        <h2 id="campaign-import-title">Fichiers à comparer</h2>
+        <span>Excel .xlsx ou .xls</span>
+      </div>
+    </div>
+    <div class="campaign-file-counter" aria-live="polite">
+      <strong data-ready-count>0</strong><span>/3 prêts</span>
+    </div>
+  </div>
+
+  <form method="post" enctype="multipart/form-data" novalidate data-campaign-form>{% csrf_token %}
+    {% if form.errors %}
+      <div class="alert alert-danger import-feedback" role="alert">
+        <i class="bi bi-x-circle-fill" aria-hidden="true"></i>
+        <div>
+          <strong>Import impossible</strong>
+          <ul>
+            {% for field in form %}{% for error in field.errors %}<li>{{ error }}</li>{% endfor %}{% endfor %}
+            {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+          </ul>
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="campaign-file-grid">
+      <article class="campaign-file-card {% if form.fichier_smi.errors %}is-error{% endif %}" data-file-card>
+        <div class="campaign-step">01</div>
+        <div class="campaign-file-visual"><i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i></div>
+        <span class="campaign-system-name">SMI</span>
+        <label for="{{ form.fichier_smi.id_for_label }}">Sélectionner le fichier SMI</label>
+        {{ form.fichier_smi }}
+        <div class="campaign-file-state {% if form.fichier_smi.errors %}is-error{% endif %}" data-file-state>
+          {% if form.fichier_smi.errors %}<i class="bi bi-x-circle-fill"></i><span>Fichier non valide</span>{% else %}<i class="bi bi-circle"></i><span>À sélectionner</span>{% endif %}
+        </div>
+      </article>
+
+      <article class="campaign-file-card {% if form.fichier_sicom.errors %}is-error{% endif %}" data-file-card>
+        <div class="campaign-step">02</div>
+        <div class="campaign-file-visual"><i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i></div>
+        <span class="campaign-system-name">SICOM</span>
+        <label for="{{ form.fichier_sicom.id_for_label }}">Sélectionner le fichier SICOM</label>
+        {{ form.fichier_sicom }}
+        <div class="campaign-file-state {% if form.fichier_sicom.errors %}is-error{% endif %}" data-file-state>
+          {% if form.fichier_sicom.errors %}<i class="bi bi-x-circle-fill"></i><span>Fichier non valide</span>{% else %}<i class="bi bi-circle"></i><span>À sélectionner</span>{% endif %}
+        </div>
+      </article>
+
+      <article class="campaign-file-card {% if form.fichier_sibo.errors %}is-error{% endif %}" data-file-card>
+        <div class="campaign-step">03</div>
+        <div class="campaign-file-visual"><i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i></div>
+        <span class="campaign-system-name">SIBO</span>
+        <label for="{{ form.fichier_sibo.id_for_label }}">Sélectionner le fichier SIBO</label>
+        {{ form.fichier_sibo }}
+        <div class="campaign-file-state {% if form.fichier_sibo.errors %}is-error{% endif %}" data-file-state>
+          {% if form.fichier_sibo.errors %}<i class="bi bi-x-circle-fill"></i><span>Fichier non valide</span>{% else %}<i class="bi bi-circle"></i><span>À sélectionner</span>{% endif %}
+        </div>
+      </article>
+    </div>
+
+    <div class="campaign-progress" aria-hidden="true"><span data-progress-bar></span></div>
+
+    <div class="campaign-import-actions">
+      <span class="campaign-ready-message" data-ready-message>Sélectionnez les 3 fichiers.</span>
+      <button class="btn btn-primary campaign-submit" type="submit">
+        <i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i> Importer et comparer
+      </button>
+    </div>
+  </form>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const form = document.querySelector('[data-campaign-form]');
+  if (!form) return;
+
+  const cards = [...form.querySelectorAll('[data-file-card]')];
+  const counter = document.querySelector('[data-ready-count]');
+  const progress = document.querySelector('[data-progress-bar]');
+  const message = document.querySelector('[data-ready-message]');
+
+  const refreshProgress = () => {
+    const ready = cards.filter((card) => card.querySelector('input[type="file"]').files.length > 0).length;
+    counter.textContent = ready;
+    progress.style.width = `${(ready / 3) * 100}%`;
+    message.textContent = ready === 3 ? 'Tout est prêt pour la comparaison.' : `Encore ${3 - ready} fichier${3 - ready > 1 ? 's' : ''} à sélectionner.`;
+    message.classList.toggle('is-ready', ready === 3);
+  };
+
+  cards.forEach((card) => {
+    const input = card.querySelector('input[type="file"]');
+    const state = card.querySelector('[data-file-state]');
+    input.addEventListener('change', () => {
+      card.classList.remove('is-error', 'is-ready');
+      state.classList.remove('is-error', 'is-ready');
+
+      if (input.files.length) {
+        card.classList.add('is-ready');
+        state.classList.add('is-ready');
+        state.innerHTML = `<i class="bi bi-check-circle-fill"></i><span>${input.files[0].name}</span>`;
+      } else {
+        state.innerHTML = '<i class="bi bi-circle"></i><span>À sélectionner</span>';
+      }
+      refreshProgress();
+    });
+  });
+
+  refreshProgress();
+})();
+</script>
 {% endblock %}
