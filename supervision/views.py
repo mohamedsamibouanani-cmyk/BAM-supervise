@@ -48,18 +48,29 @@ def dashboard(request):
     today = timezone.localdate()
     first_day = today - timedelta(days=6)
     nouvelles_aujourdhui = anomalies.filter(detectee_le__date=today).count()
-    trend_rows = (
+    detected_trend_rows = (
         anomalies.filter(detectee_le__date__gte=first_day)
         .annotate(day=TruncDate('detectee_le'))
         .values('day').annotate(total=Count('id')).order_by('day')
     )
-    trend_map = {row['day']: row['total'] for row in trend_rows}
+    resolved_trend_rows = (
+        anomalies.filter(cloturee_le__date__gte=first_day, cloturee_le__date__lte=today)
+        .annotate(day=TruncDate('cloturee_le'))
+        .values('day').annotate(total=Count('id')).order_by('day')
+    )
+    detected_trend_map = {row['day']: row['total'] for row in detected_trend_rows}
+    resolved_trend_map = {row['day']: row['total'] for row in resolved_trend_rows}
     trend_days = [first_day + timedelta(days=i) for i in range(7)]
+    detected_trend_values = [detected_trend_map.get(day, 0) for day in trend_days]
+    resolved_trend_values = [resolved_trend_map.get(day, 0) for day in trend_days]
+    trend_detected_total = sum(detected_trend_values)
+    trend_resolved_total = sum(resolved_trend_values)
 
     dashboard_data = {
         'trend': {
             'labels': [day.strftime('%d/%m') for day in trend_days],
-            'values': [trend_map.get(day, 0) for day in trend_days],
+            'detected': detected_trend_values,
+            'resolved': resolved_trend_values,
         },
     }
 
@@ -75,6 +86,10 @@ def dashboard(request):
         'en_suivi': en_suivi,
         'nouvelles_aujourdhui': nouvelles_aujourdhui,
         'taux_resolution': taux_resolution,
+        'trend_detected_total': trend_detected_total,
+        'trend_resolved_total': trend_resolved_total,
+        'trend_balance': trend_detected_total - trend_resolved_total,
+        'trend_has_activity': bool(trend_detected_total or trend_resolved_total),
         'campagnes': campaign_queryset[:4],
         'campagnes_echec': CampagneSupervision.objects.filter(statut=CampagneSupervision.Statut.ECHEC).count(),
         'latest_campaign': latest_campaign,
