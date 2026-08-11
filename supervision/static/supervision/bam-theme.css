@@ -26,8 +26,8 @@
   background:var(--bam-yellow);
   color:var(--bam-blue-dark);
   box-shadow:0 10px 24px rgba(0,0,0,.16);
-  font-size:12px;
-  letter-spacing:.02em;
+  font-size:10px;
+  letter-spacing:0;
 }
 .brand strong{font-size:16px}
 .brand small{color:#d8e4ff;letter-spacing:.08em}
