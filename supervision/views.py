@@ -3,7 +3,7 @@ from datetime import timedelta
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
-from django.db.models import Count, Q
+from django.db.models import Case, Count, IntegerField, Q, Value, When
 from django.db.models.functions import TruncDate
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -178,10 +178,31 @@ def campaign_create(request):
 
 @login_required
 def anomaly_list(request):
-    qs = Anomalie.objects.select_related('systeme_ecart', 'attribut', 'campagne').order_by('-detectee_le')
+    all_anomalies = Anomalie.objects.all()
+    action_statuses = [Anomalie.Statut.DETECTEE, Anomalie.Statut.ANALYSEE]
+    follow_up_statuses = [Anomalie.Statut.VALIDEE, Anomalie.Statut.NOTIFIEE, Anomalie.Statut.PERSISTANTE]
+    summary = {
+        'total': all_anomalies.count(),
+        'a_traiter': all_anomalies.filter(statut__in=action_statuses).count(),
+        'en_suivi': all_anomalies.filter(statut__in=follow_up_statuses).count(),
+        'resolues': all_anomalies.filter(statut=Anomalie.Statut.RESOLUE).count(),
+    }
+
+    qs = all_anomalies.select_related('systeme_ecart', 'attribut', 'campagne')
+    vue = request.GET.get('vue', '').strip()
+    if vue == 'a_traiter':
+        qs = qs.filter(statut__in=action_statuses)
+    elif vue == 'en_suivi':
+        qs = qs.filter(statut__in=follow_up_statuses)
+    elif vue == 'resolues':
+        qs = qs.filter(statut=Anomalie.Statut.RESOLUE)
+    else:
+        vue = ''
+
     for field in ('niveau', 'type_ecart', 'statut'):
         value = request.GET.get(field, '').strip()
-        if value:
+        valid_values = {choice_value for choice_value, _label in Anomalie._meta.get_field(field).choices}
+        if value in valid_values:
             qs = qs.filter(**{field: value})
     system = request.GET.get('systeme', '').strip()
     if system:
@@ -194,16 +215,23 @@ def anomaly_list(request):
             | Q(attribut__code_attribut__icontains=search)
         )
 
+    qs = qs.annotate(
+        work_priority=Case(
+            When(statut__in=action_statuses, then=Value(0)),
+            When(statut__in=follow_up_statuses, then=Value(1)),
+            default=Value(2),
+            output_field=IntegerField(),
+        )
+    ).order_by('work_priority', 'detectee_le')
+
     filtered_total = qs.count()
-    filtered_open = qs.exclude(statut=Anomalie.Statut.RESOLUE).count()
-    filtered_resolved = qs.filter(statut=Anomalie.Statut.RESOLUE).count()
     context = {
-        'anomalies': qs[:500],
+        'anomalies': qs[:250],
         'systems': Systeme.objects.all(),
+        'summary': summary,
         'filtered_total': filtered_total,
-        'filtered_open': filtered_open,
-        'filtered_resolved': filtered_resolved,
         'filters': request.GET,
+        'vue': vue,
     }
     return render(request, 'supervision/anomaly_list.html', context)
 
