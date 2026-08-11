@@ -1,3 +1,5 @@
+from collections import Counter
+
 from django.db import transaction
 from django.utils import timezone
 
@@ -139,13 +141,45 @@ def _compare_attribute_maps(campaign, systems, code_envoi, service_code, values)
                 details = _attribute_details(systems, vals, miss)
                 _create_anomaly(campaign, 'ATTRIBUT', 'ABSENT', code_envoi, systems, details, code_service=service_code, attribute=attr, gap_system=systems[miss])
             continue
-        # BAM Supervise contrôle la synchronisation structurelle. Une valeur présente
-        # dans les trois systèmes, même différente, ne constitue pas une anomalie.
-        # La qualité de la donnée source est analysée uniquement pour expliquer la
-        # non-synchronisation d'un envoi, service ou attribut absent.
+        if len(nonempty_systems) != len(systems):
+            continue
+
+        normalized = {s: _comparable_attribute_value(vals[s]) for s in systems}
+        if len(set(normalized.values())) <= 1:
+            continue
+
+        counts = Counter(normalized.values())
+        most_common_value, most_common_count = counts.most_common(1)[0]
+        has_unique_majority = most_common_count >= 2 and list(counts.values()).count(most_common_count) == 1
+        divergent = [s for s, value in normalized.items() if value != most_common_value] if has_unique_majority else []
+        gap_code = divergent[0] if len(divergent) == 1 else None
+        details = _attribute_details(
+            systems,
+            vals,
+            gap_code,
+            mark_all_as_gap=gap_code is None,
+        )
+        _create_anomaly(
+            campaign,
+            'ATTRIBUT',
+            'DIFFERENT',
+            code_envoi,
+            systems,
+            details,
+            code_service=service_code,
+            attribute=attr,
+            gap_system=systems[gap_code] if gap_code else None,
+        )
 
 
-def _attribute_details(systems, vals, gap_code=None):
+def _comparable_attribute_value(value):
+    """Return the canonical value used for cross-system equality checks."""
+    if value.valeur_normalisee is not None:
+        return str(value.valeur_normalisee).strip()
+    return str(value.valeur_brute or '').strip()
+
+
+def _attribute_details(systems, vals, gap_code=None, mark_all_as_gap=False):
     details = {}
     for s in systems:
         v = vals[s]
@@ -155,7 +189,7 @@ def _attribute_details(systems, vals, gap_code=None):
             'valeur_brute': masked_sensitive_value(v.valeur_brute) if sensitive else (v.valeur_brute if v else None),
             'valeur_normalisee': masked_sensitive_value(v.valeur_normalisee) if sensitive else (v.valeur_normalisee if v else None),
             'format_source_conforme': v.format_source_conforme if v else None,
-            'est_ecart': s == gap_code,
+            'est_ecart': mark_all_as_gap or s == gap_code,
         }
     return details
 
