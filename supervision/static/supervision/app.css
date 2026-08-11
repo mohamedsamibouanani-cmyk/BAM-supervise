@@ -146,6 +146,9 @@ form p{margin-bottom:16px}form p .helptext{display:block;margin-top:5px;color:#9
 
 /* Bootstrap alerts */
 .bam-alert{border:0;border-left:3px solid currentColor;border-radius:11px;box-shadow:0 4px 15px rgba(16,24,40,.04)}
+.bam-alert.alert-danger{border:1px solid #f0a8a1;border-left:5px solid #d92d20;background:#fff1f0;color:#8f1f17;box-shadow:0 8px 22px rgba(217,45,32,.12)}
+.bam-alert.alert-danger .bi{color:#d92d20;font-size:16px}
+.bam-alert.alert-danger .btn-close{filter:none;opacity:.65}
 
 @media (max-width:1199.98px){.kpi-strip{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-grid{grid-template-columns:1fr}}
 @media (max-width:991.98px){.bam-main{margin-left:0}.bam-topbar{padding:0 18px}.bam-content{padding:22px 18px 36px}.page-header{align-items:stretch}.evidence-grid{grid-template-columns:1fr}.auth-wrapper{align-items:center}}
