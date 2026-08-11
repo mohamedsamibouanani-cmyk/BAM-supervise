@@ -53,6 +53,7 @@ class Command(BaseCommand):
             ('ARTICLE_INVALIDE', 'Article ou libellé de service invalide', 'ENVOI', 'FORMAT', 'ARTICLE'),
             ('CHAMP_SOURCE_MANQUANT', 'Champ source obligatoire manquant', 'ENVOI', 'DONNEE', ''),
             ('CHAMP_OBLIGATOIRE_VIDE', 'Champ obligatoire vide', 'ATTRIBUT', 'DONNEE', ''),
+            ('ATTRIBUT_DIFFERENT', 'Valeur d’attribut non synchronisée', 'ATTRIBUT', 'SYNCHRONISATION', ''),
             ('SERVICE_INCONNU', 'Service non reconnu', 'SERVICE', 'REGLE', 'ARTICLE'),
             ('MOTIF_INCONNU', 'Motif non identifié', 'ENVOI', 'TECHNIQUE', ''),
         ]
@@ -77,6 +78,15 @@ class Command(BaseCommand):
                         'expression_regle': {}, 'seuil_confiance': 0.95, 'priorite': 10, 'actif': True,
                     },
                 )
+        RegleMetier.objects.update_or_create(
+            code_regle='ATTRIBUT_VALEUR_DIFFERENTE',
+            defaults={
+                'attribut': None, 'motif_suggere': motifs['ATTRIBUT_DIFFERENT'],
+                'niveau_anomalie': 'ATTRIBUT', 'type_controle': 'DIFFERENCE',
+                'expression_regle': {'type_ecart': 'DIFFERENT'},
+                'seuil_confiance': 0.95, 'priorite': 5, 'actif': True,
+            },
+        )
         RegleMetier.objects.update_or_create(
             code_regle='ENVOI_TELEPHONE_VIDE',
             defaults={
