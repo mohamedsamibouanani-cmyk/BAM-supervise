@@ -330,6 +330,7 @@ class Anomalie(models.Model):
 
     class TypeEcart(models.TextChoices):
         ABSENT = 'ABSENT', 'Absent'
+        DIFFERENT = 'DIFFERENT', 'Valeur différente'
 
     class Statut(models.TextChoices):
         DETECTEE = 'DETECTEE', 'Détectée'
@@ -363,8 +364,8 @@ class Anomalie(models.Model):
         constraints = [models.UniqueConstraint(fields=['campagne', 'empreinte_anomalie'], name='uq_campagne_empreinte_anomalie')]
 
     def clean(self):
-        if self.type_ecart != self.TypeEcart.ABSENT:
-            raise ValidationError('BAM Supervise détecte uniquement les éléments absents.')
+        if self.type_ecart == self.TypeEcart.DIFFERENT and self.niveau != self.Niveau.ATTRIBUT:
+            raise ValidationError('Une différence de valeur ne peut concerner que le niveau ATTRIBUT.')
         if self.niveau != self.Niveau.ATTRIBUT and self.attribut_id:
             raise ValidationError('Un attribut ne doit être renseigné qu’au niveau ATTRIBUT.')
 
