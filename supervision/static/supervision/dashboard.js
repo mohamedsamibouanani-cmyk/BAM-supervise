@@ -42,30 +42,4 @@
     });
   }
 
-  const level = document.getElementById('levelChart');
-  if (level) {
-    new Chart(level, {
-      type: 'doughnut',
-      data: {
-        labels: data.levels.labels,
-        datasets: [{
-          data: data.levels.values,
-          backgroundColor: [bamBlue, bamYellow, '#6f8dcc'],
-          borderWidth: 0,
-          hoverOffset: 5,
-        }],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        cutout: '72%',
-        plugins: {
-          legend: {
-            position: 'bottom',
-            labels: {usePointStyle: true, boxWidth: 7, padding: 18, font: {size: 11}},
-          },
-        },
-      },
-    });
-  }
 })();
