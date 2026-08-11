@@ -5,7 +5,7 @@
   <div>
     <div class="page-eyebrow"><a href="{% url 'anomaly_detail' anomaly.pk %}"><i class="bi bi-arrow-left"></i> Dossier #{{ anomaly.pk }}</a></div>
     <h1 class="page-title">Validation du motif</h1>
-    <p class="page-subtitle">La proposition du système n’est pas une décision finale. Confirmez ou remplacez le motif et le système à corriger avant le routage de l’e-mail.</p>
+    <p class="page-subtitle">Confirmez la cause ou saisissez un nouveau motif, puis notifiez le collaborateur.</p>
   </div>
 </div>
 
@@ -21,8 +21,9 @@
           {% if form.non_field_errors %}<div class="alert alert-danger">{{ form.non_field_errors }}</div>{% endif %}
           <div class="row g-3">
             <div class="col-12"><label class="form-label" for="{{ form.prediction.id_for_label }}">Proposition retenue</label>{{ form.prediction }}{% if form.prediction.errors %}<div class="text-danger small mt-1">{{ form.prediction.errors }}</div>{% endif %}<div class="text-secondary mt-1" style="font-size:10px">Choisissez une proposition existante ou modifiez directement le motif ci-dessous.</div></div>
-            <div class="col-md-6"><label class="form-label" for="{{ form.motif_final.id_for_label }}">Motif final</label>{{ form.motif_final }}{% if form.motif_final.errors %}<div class="text-danger small mt-1">{{ form.motif_final.errors }}</div>{% endif %}</div>
+            <div class="col-md-6"><label class="form-label" for="{{ form.motif_final.id_for_label }}">Motif proposé</label>{{ form.motif_final }}{% if form.motif_final.errors %}<div class="text-danger small mt-1">{{ form.motif_final.errors }}</div>{% endif %}</div>
             <div class="col-md-6"><label class="form-label" for="{{ form.systeme_a_corriger_final.id_for_label }}">Système à corriger</label>{{ form.systeme_a_corriger_final }}{% if form.systeme_a_corriger_final.errors %}<div class="text-danger small mt-1">{{ form.systeme_a_corriger_final.errors }}</div>{% endif %}</div>
+            <div class="col-12"><div class="form-separator"><span>ou</span></div><label class="form-label" for="{{ form.nouveau_motif.id_for_label }}">Saisir la cause réelle</label>{{ form.nouveau_motif }}{% if form.nouveau_motif.errors %}<div class="text-danger small mt-1">{{ form.nouveau_motif.errors }}</div>{% endif %}<div class="text-secondary mt-1" style="font-size:10px">Ce motif sera mémorisé après validation et pourra être proposé pour un prochain dossier similaire.</div></div>
             <div class="col-md-6"><label class="form-label" for="{{ form.decision.id_for_label }}">Type de décision</label>{{ form.decision }}{% if form.decision.errors %}<div class="text-danger small mt-1">{{ form.decision.errors }}</div>{% endif %}</div>
             <div class="col-12"><label class="form-label" for="{{ form.commentaire.id_for_label }}">Commentaire</label>{{ form.commentaire }}{% if form.commentaire.errors %}<div class="text-danger small mt-1">{{ form.commentaire.errors }}</div>{% endif %}</div>
           </div>
@@ -34,16 +35,6 @@
       </div>
     </section>
   </div>
-  <div class="col-xl-4">
-    <section class="panel">
-      <div class="panel-header"><div><h2 class="panel-title">Rappel du workflow</h2><p class="panel-subtitle">Décision avant action</p></div></div>
-      <div class="panel-body quick-list">
-        <div class="quick-row"><span class="quick-icon"><i class="bi bi-lightbulb"></i></span><div class="quick-copy"><strong>1 · Proposition</strong><small>Le moteur explique l’écart avec une ou plusieurs hypothèses.</small></div></div>
-        <div class="quick-row"><span class="quick-icon"><i class="bi bi-person-check"></i></span><div class="quick-copy"><strong>2 · Validation</strong><small>Vous acceptez, modifiez ou déclarez le motif inconnu.</small></div></div>
-        <div class="quick-row"><span class="quick-icon"><i class="bi bi-diagram-3"></i></span><div class="quick-copy"><strong>3 · Affectation</strong><small>Motif final + système final déterminent le groupe.</small></div></div>
-        <div class="quick-row"><span class="quick-icon"><i class="bi bi-envelope-paper"></i></span><div class="quick-copy"><strong>4 · Notification</strong><small>L’e-mail est envoyé aux contacts du groupe responsable.</small></div></div>
-      </div>
-    </section>
-  </div>
+  <div class="col-xl-4"><section class="panel"><div class="panel-body"><div class="decision-summary"><i class="bi bi-envelope-check"></i><h3>Après validation</h3><p>Le collaborateur reçoit le code d’envoi, l’élément absent, le système concerné, le motif validé et le champ source à vérifier.</p></div></div></section></div>
 </div>
 {% endblock %}
