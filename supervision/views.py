@@ -92,8 +92,15 @@ def dashboard(request):
 
 @login_required
 def campaign_list(request):
+    all_campaigns = CampagneSupervision.objects.all()
+    summary = {
+        'total': all_campaigns.count(),
+        'terminees': all_campaigns.filter(statut=CampagneSupervision.Statut.TERMINEE).count(),
+        'echecs': all_campaigns.filter(statut=CampagneSupervision.Statut.ECHEC).count(),
+        'en_cours': all_campaigns.filter(statut=CampagneSupervision.Statut.EN_COURS).count(),
+    }
     qs = (
-        CampagneSupervision.objects.annotate(
+        all_campaigns.annotate(
             import_count=Count('imports', distinct=True),
             anomaly_count=Count('anomalies', distinct=True),
         )
@@ -101,9 +108,16 @@ def campaign_list(request):
         .order_by('-demarree_le')
     )
     statut = request.GET.get('statut', '').strip()
-    if statut:
+    valid_statuses = {value for value, _label in CampagneSupervision.Statut.choices}
+    if statut in valid_statuses:
         qs = qs.filter(statut=statut)
-    return render(request, 'supervision/campaign_list.html', {'campagnes': qs[:250], 'statut': statut})
+    else:
+        statut = ''
+    return render(
+        request,
+        'supervision/campaign_list.html',
+        {'campagnes': qs[:250], 'statut': statut, 'summary': summary},
+    )
 
 
 @login_required
@@ -115,7 +129,11 @@ def campaign_create(request):
             if len(systems) != 3:
                 messages.error(request, 'Initialisez les systèmes SMI, SICOM et SIBO avec seed_bam.')
                 return redirect('campaign_create')
-            campaign = CampagneSupervision.objects.create(superviseur=request.user)
+            campaign = CampagneSupervision.objects.create(
+                superviseur=request.user,
+                statut=CampagneSupervision.Statut.EN_COURS,
+            )
+            current_system = None
             try:
                 uploaded = {
                     'SMI': form.cleaned_data['fichier_smi'],
@@ -123,14 +141,31 @@ def campaign_create(request):
                     'SIBO': form.cleaned_data['fichier_sibo'],
                 }
                 for code, file_obj in uploaded.items():
+                    current_system = code
                     fimport = import_excel(file_obj, systems[code], request.user)
                     CampagneImport.objects.create(campagne=campaign, systeme=systems[code], fichier_import=fimport)
+                current_system = None
                 run_campaign(campaign)
                 _audit(request, 'CREATE', 'campagne_supervision', campaign.pk, {'nb_anomalies': campaign.nb_anomalies})
-                messages.success(request, f'Campagne terminée : {campaign.nb_anomalies} anomalie(s) détectée(s).')
+                messages.success(
+                    request,
+                    'Import réussi. Les trois fichiers ont été validés et la comparaison est terminée. '
+                    f'{campaign.nb_anomalies} anomalie(s) détectée(s).',
+                )
                 return redirect('anomaly_list')
             except Exception as exc:
-                messages.error(request, f'Échec de la campagne : {exc}')
+                campaign.statut = CampagneSupervision.Statut.ECHEC
+                campaign.terminee_le = timezone.now()
+                campaign.message_erreur = str(exc)
+                campaign.save(update_fields=['statut', 'terminee_le', 'message_erreur'])
+                if current_system:
+                    reason = f'le fichier {current_system} n’a pas pu être validé : {exc}'
+                else:
+                    reason = f'la comparaison n’a pas pu être terminée : {exc}'
+                messages.error(request, f'Import impossible : {reason}')
+                # Browsers never repopulate file inputs after a response. Return
+                # a fresh form so the visual state matches what can be submitted.
+                form = CampaignImportForm()
     else:
         form = CampaignImportForm()
     return render(request, 'supervision/campaign_form.html', {'form': form})
