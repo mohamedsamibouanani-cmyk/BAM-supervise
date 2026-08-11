@@ -7,11 +7,12 @@ from django.db.models import Case, Count, IntegerField, Q, Value, When
 from django.db.models.functions import TruncDate
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.utils.text import slugify
 
 from .forms import CampaignImportForm, ContactGroupeForm, ValidationMotifForm
 from .models import (
     Anomalie, CampagneImport, CampagneSupervision, ContactGroupe, ExempleApprentissage,
-    GroupeResponsable, HistoriqueAnomalie, JournalAudit, Notification, Systeme,
+    GroupeResponsable, HistoriqueAnomalie, JournalAudit, Motif, Notification, Systeme,
     ValidationMotif,
 )
 from .services.comparison import run_campaign
@@ -291,13 +292,34 @@ def anomaly_validate(request, pk):
             anomaly.validations.filter(est_finale=True).update(est_finale=False)
             version = (anomaly.validations.order_by('-version_validation').values_list('version_validation', flat=True).first() or 0) + 1
             prediction = form.cleaned_data.get('prediction')
+            motif_final = form.cleaned_data.get('motif_final')
+            decision = form.cleaned_data['decision']
+            nouveau_motif = (form.cleaned_data.get('nouveau_motif') or '').strip()
+            if nouveau_motif:
+                motif_final = Motif.objects.filter(libelle__iexact=nouveau_motif).first()
+                if not motif_final:
+                    base_code = slugify(nouveau_motif).replace('-', '_').upper()[:60] or 'MOTIF_APPRIS'
+                    code = base_code
+                    suffix = 2
+                    while Motif.objects.filter(code_motif=code).exists():
+                        code = f'{base_code[:70]}_{suffix}'
+                        suffix += 1
+                    motif_final = Motif.objects.create(
+                        code_motif=code,
+                        libelle=nouveau_motif,
+                        description='Motif ajouté après validation humaine dans un dossier de supervision.',
+                        niveau_applicable=anomaly.niveau,
+                        categorie='APPRENTISSAGE',
+                        actif=True,
+                    )
+                decision = ValidationMotif.Decision.MODIFIE
             validation = ValidationMotif.objects.create(
                 anomalie=anomaly,
                 prediction_retenue=prediction,
-                motif_final=form.cleaned_data['motif_final'],
+                motif_final=motif_final,
                 systeme_a_corriger_final=form.cleaned_data['systeme_a_corriger_final'],
                 superviseur=request.user,
-                decision=form.cleaned_data['decision'],
+                decision=decision,
                 commentaire=form.cleaned_data['commentaire'],
                 version_validation=version,
                 est_finale=True,
