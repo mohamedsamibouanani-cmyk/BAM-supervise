@@ -25,7 +25,10 @@
         {% elif anomaly.niveau == 'SERVICE' %}Le service {{ anomaly.code_service }}
         {% else %}L’attribut {{ anomaly.attribut.code_attribut }}{% endif %}
       </strong>
-      {% if anomaly.systeme_ecart %} est absent dans <span class="system-badge">{{ anomaly.systeme_ecart.code_systeme }}</span>.{% endif %}
+      {% if anomaly.type_ecart == 'DIFFERENT' %}
+        présente des valeurs différentes entre les systèmes.
+        {% if anomaly.systeme_ecart %}<span class="system-badge">{{ anomaly.systeme_ecart.code_systeme }}</span> est identifié comme différent.{% endif %}
+      {% elif anomaly.systeme_ecart %} est absent dans <span class="system-badge">{{ anomaly.systeme_ecart.code_systeme }}</span>.{% endif %}
     </div>
     <div class="detail-meta">
       {% if anomaly.code_service %}<span><i class="bi bi-box"></i> Service : <strong>{{ anomaly.code_service }}</strong></span>{% endif %}
@@ -40,13 +43,16 @@
 <div class="row g-3 mb-3">
   <div class="col-xl-7">
     <section class="panel h-100">
-      <div class="panel-header"><div><span class="workflow-step">1</span><h2 class="panel-title d-inline ms-2">Où manque l’élément ?</h2><p class="panel-subtitle mt-2">Présence constatée dans les fichiers importés</p></div></div>
+      <div class="panel-header"><div><span class="workflow-step">1</span><h2 class="panel-title d-inline ms-2">{% if anomaly.type_ecart == 'DIFFERENT' %}Valeurs comparées{% else %}Où manque l’élément ?{% endif %}</h2><p class="panel-subtitle mt-2">{% if anomaly.type_ecart == 'DIFFERENT' %}Valeur de l’attribut dans SMI, SICOM et SIBO{% else %}Présence constatée dans les fichiers importés{% endif %}</p></div></div>
       <div class="panel-body">
         <div class="evidence-grid">
           {% for d in anomaly.details.all %}
           <article class="evidence-card {% if d.est_ecart %}is-gap{% endif %}">
             <div class="evidence-system"><span class="system-badge">{{ d.systeme.code_systeme }}</span></div>
-            {% if d.objet_present %}
+            {% if anomaly.type_ecart == 'DIFFERENT' %}
+              <div class="presence-state {% if d.est_ecart %}is-missing{% else %}is-present{% endif %}"><i class="bi bi-{% if d.est_ecart %}exclamation-circle-fill{% else %}check-circle-fill{% endif %}"></i><strong>{{ d.valeur_brute|default:'—' }}</strong></div>
+              {% if d.est_ecart %}<small class="text-danger">Valeur non synchronisée</small>{% else %}<small class="text-secondary">Valeur de référence</small>{% endif %}
+            {% elif d.objet_present %}
               <div class="presence-state is-present"><i class="bi bi-check-circle-fill"></i><strong>Présent</strong></div>
               {% if d.ligne_source %}<small class="text-secondary">Ligne Excel {{ d.ligne_source }}</small>{% endif %}
             {% else %}
