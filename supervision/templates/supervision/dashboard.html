@@ -97,15 +97,19 @@
 
   <section class="panel dashboard-trend">
     <div class="panel-header">
-      <div><h2 class="panel-title">7 derniers jours</h2><p class="panel-subtitle">Anomalies détectées par jour</p></div>
-      <span class="dashboard-total-pill">{{ total }} au total</span>
+      <div><h2 class="panel-title">Activité sur 7 jours</h2><p class="panel-subtitle">Détections et résolutions, jour par jour</p></div>
+      <span class="dashboard-period-pill"><i class="bi bi-calendar3"></i> 7 jours</span>
     </div>
     <div class="panel-body">
-      <div class="chart-shell"><canvas id="trendChart"></canvas></div>
-      <div class="dashboard-levels">
-        <div><span><i class="level-dot envoi"></i> Envois</span><strong>{{ level_counts.envoi }}</strong></div>
-        <div><span><i class="level-dot service"></i> Services</span><strong>{{ level_counts.service }}</strong></div>
-        <div><span><i class="level-dot attribut"></i> Attributs</span><strong>{{ level_counts.attribut }}</strong></div>
+      {% if trend_has_activity %}
+        <div class="chart-shell"><canvas id="trendChart" aria-label="Courbe des anomalies détectées et résolues sur les sept derniers jours" role="img"></canvas></div>
+      {% else %}
+        <div class="dashboard-chart-empty"><i class="bi bi-graph-up"></i><strong>Aucune activité sur cette période</strong><span>La courbe apparaîtra après une détection ou une résolution.</span></div>
+      {% endif %}
+      <div class="dashboard-trend-summary">
+        <div><span><i class="trend-dot is-detected"></i> Détectées</span><strong>{{ trend_detected_total }}</strong></div>
+        <div><span><i class="trend-dot is-resolved"></i> Résolues</span><strong>{{ trend_resolved_total }}</strong></div>
+        <div class="{% if trend_balance > 0 %}is-warning{% elif trend_balance < 0 %}is-positive{% endif %}"><span>Solde de la période</span><strong>{% if trend_balance > 0 %}+{% endif %}{{ trend_balance }}</strong></div>
       </div>
     </div>
   </section>
