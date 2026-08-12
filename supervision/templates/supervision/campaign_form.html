@@ -1,4 +1,5 @@
 {% extends 'supervision/base.html' %}
+{% load static %}
 {% block title %}Nouvelle campagne | BAM Supervise{% endblock %}
 {% block content %}
 <div class="page-header campaign-heading">
@@ -48,8 +49,8 @@
         <span class="campaign-system-name">SMI</span>
         <label for="{{ form.fichier_smi.id_for_label }}">Sélectionner le fichier SMI</label>
         {{ form.fichier_smi }}
-        <div class="campaign-file-state {% if form.fichier_smi.errors %}is-error{% endif %}" data-file-state>
-          {% if form.fichier_smi.errors %}<i class="bi bi-x-circle-fill"></i><span>Fichier non valide</span>{% else %}<i class="bi bi-circle"></i><span>À sélectionner</span>{% endif %}
+        <div class="campaign-file-state {% if form.fichier_smi.errors %}is-error{% endif %}" data-file-state aria-live="polite">
+          {% if form.fichier_smi.errors %}<i class="bi bi-x-circle-fill" aria-hidden="true"></i><span>Fichier non valide</span>{% else %}<i class="bi bi-circle" aria-hidden="true"></i><span>À sélectionner</span>{% endif %}
         </div>
       </article>
 
@@ -59,8 +60,8 @@
         <span class="campaign-system-name">SICOM</span>
         <label for="{{ form.fichier_sicom.id_for_label }}">Sélectionner le fichier SICOM</label>
         {{ form.fichier_sicom }}
-        <div class="campaign-file-state {% if form.fichier_sicom.errors %}is-error{% endif %}" data-file-state>
-          {% if form.fichier_sicom.errors %}<i class="bi bi-x-circle-fill"></i><span>Fichier non valide</span>{% else %}<i class="bi bi-circle"></i><span>À sélectionner</span>{% endif %}
+        <div class="campaign-file-state {% if form.fichier_sicom.errors %}is-error{% endif %}" data-file-state aria-live="polite">
+          {% if form.fichier_sicom.errors %}<i class="bi bi-x-circle-fill" aria-hidden="true"></i><span>Fichier non valide</span>{% else %}<i class="bi bi-circle" aria-hidden="true"></i><span>À sélectionner</span>{% endif %}
         </div>
       </article>
 
@@ -70,8 +71,8 @@
         <span class="campaign-system-name">SIBO</span>
         <label for="{{ form.fichier_sibo.id_for_label }}">Sélectionner le fichier SIBO</label>
         {{ form.fichier_sibo }}
-        <div class="campaign-file-state {% if form.fichier_sibo.errors %}is-error{% endif %}" data-file-state>
-          {% if form.fichier_sibo.errors %}<i class="bi bi-x-circle-fill"></i><span>Fichier non valide</span>{% else %}<i class="bi bi-circle"></i><span>À sélectionner</span>{% endif %}
+        <div class="campaign-file-state {% if form.fichier_sibo.errors %}is-error{% endif %}" data-file-state aria-live="polite">
+          {% if form.fichier_sibo.errors %}<i class="bi bi-x-circle-fill" aria-hidden="true"></i><span>Fichier non valide</span>{% else %}<i class="bi bi-circle" aria-hidden="true"></i><span>À sélectionner</span>{% endif %}
         </div>
       </article>
     </div>
@@ -79,7 +80,7 @@
     <div class="campaign-progress" aria-hidden="true"><span data-progress-bar></span></div>
 
     <div class="campaign-import-actions">
-      <span class="campaign-ready-message" data-ready-message>Sélectionnez les 3 fichiers.</span>
+      <span class="campaign-ready-message" data-ready-message aria-live="polite">Sélectionnez les 3 fichiers.</span>
       <button class="btn btn-primary campaign-submit" type="submit">
         <i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i> Importer et comparer
       </button>
@@ -88,44 +89,4 @@
 </section>
 {% endblock %}
 
-{% block scripts %}
-<script>
-(() => {
-  const form = document.querySelector('[data-campaign-form]');
-  if (!form) return;
-
-  const cards = [...form.querySelectorAll('[data-file-card]')];
-  const counter = document.querySelector('[data-ready-count]');
-  const progress = document.querySelector('[data-progress-bar]');
-  const message = document.querySelector('[data-ready-message]');
-
-  const refreshProgress = () => {
-    const ready = cards.filter((card) => card.querySelector('input[type="file"]').files.length > 0).length;
-    counter.textContent = ready;
-    progress.style.width = `${(ready / 3) * 100}%`;
-    message.textContent = ready === 3 ? 'Tout est prêt pour la comparaison.' : `Encore ${3 - ready} fichier${3 - ready > 1 ? 's' : ''} à sélectionner.`;
-    message.classList.toggle('is-ready', ready === 3);
-  };
-
-  cards.forEach((card) => {
-    const input = card.querySelector('input[type="file"]');
-    const state = card.querySelector('[data-file-state]');
-    input.addEventListener('change', () => {
-      card.classList.remove('is-error', 'is-ready');
-      state.classList.remove('is-error', 'is-ready');
-
-      if (input.files.length) {
-        card.classList.add('is-ready');
-        state.classList.add('is-ready');
-        state.innerHTML = `<i class="bi bi-check-circle-fill"></i><span>${input.files[0].name}</span>`;
-      } else {
-        state.innerHTML = '<i class="bi bi-circle"></i><span>À sélectionner</span>';
-      }
-      refreshProgress();
-    });
-  });
-
-  refreshProgress();
-})();
-</script>
-{% endblock %}
+{% block scripts %}<script src="{% static 'supervision/campaign-form.js' %}"></script>{% endblock %}
