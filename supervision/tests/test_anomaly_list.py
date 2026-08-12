@@ -66,7 +66,7 @@ class AnomalyWorkQueueTests(TestCase):
 
         self.assertEqual(codes, ['OLDEST', 'NEWEST', 'RESOLVED'])
         self.assertContains(response, 'Traiter', count=1)
-        self.assertContains(response, '>Voir<', count=2, html=False)
+        self.assertContains(response, 'Voir', count=2)
 
     def test_detected_state_is_kept_technical_not_offered_as_business_filter(self):
         self._anomaly('TECHNICAL', Anomalie.Statut.DETECTEE)
