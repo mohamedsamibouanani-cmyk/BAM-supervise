@@ -115,19 +115,37 @@ def anomaly_validate(request, pk):
 
             if decision == ValidationMotif.Decision.ACCEPTE:
                 selected_predictions = form.cleaned_data.get('predictions_selectionnees') or []
-                for offset, prediction in enumerate(selected_predictions):
-                    target = _prediction_target_system(prediction, anomaly.systeme_ecart)
-                    if target is None:
-                        continue
+                if selected_predictions:
+                    for offset, prediction in enumerate(selected_predictions):
+                        target = _prediction_target_system(prediction, anomaly.systeme_ecart)
+                        if target is None:
+                            continue
+                        validation = ValidationMotif.objects.create(
+                            anomalie=anomaly,
+                            prediction_retenue=prediction,
+                            motif_final=prediction.motif,
+                            systeme_a_corriger_final=target,
+                            superviseur=request.user,
+                            decision=ValidationMotif.Decision.ACCEPTE,
+                            commentaire=comment,
+                            version_validation=next_version + offset,
+                            est_finale=True,
+                        )
+                        _create_learning_example(validation)
+                        validations.append(validation)
+                else:
+                    # Compatibilité avec le workflow historique : une correction
+                    # explicite peut être validée même si le moteur n'a créé aucune
+                    # PredictionMotif pour ce dossier.
                     validation = ValidationMotif.objects.create(
                         anomalie=anomaly,
-                        prediction_retenue=prediction,
-                        motif_final=prediction.motif,
-                        systeme_a_corriger_final=target,
+                        prediction_retenue=None,
+                        motif_final=form.cleaned_data['motif_final'],
+                        systeme_a_corriger_final=form.cleaned_data['systeme_a_corriger_final'],
                         superviseur=request.user,
                         decision=ValidationMotif.Decision.ACCEPTE,
                         commentaire=comment,
-                        version_validation=next_version + offset,
+                        version_validation=next_version,
                         est_finale=True,
                     )
                     _create_learning_example(validation)
