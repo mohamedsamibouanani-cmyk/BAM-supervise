@@ -22,4 +22,12 @@ class SecurityHeadersMiddleware:
         response.setdefault('Referrer-Policy', 'same-origin')
         response.setdefault('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
         response.setdefault('Cross-Origin-Opener-Policy', 'same-origin')
+        response.setdefault('Cross-Origin-Resource-Policy', 'same-origin')
+
+        user = getattr(request, 'user', None)
+        content_type = response.get('Content-Type', '')
+        if user is not None and getattr(user, 'is_authenticated', False) and 'text/html' in content_type:
+            response['Cache-Control'] = 'no-store, private'
+            response['Pragma'] = 'no-cache'
+
         return response
