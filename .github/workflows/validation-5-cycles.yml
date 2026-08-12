@@ -143,16 +143,20 @@ jobs:
         run: python manage.py test
 
   cycle6_docker_e2e:
-    name: Cycle 6 - Docker HTTP assets securite
+    name: Cycle 6 - Docker navigateur HTTP securite
     runs-on: ubuntu-latest
     needs: cycle5_mysql
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Prepare Docker environment
         run: |
           cp .env.example .env
           sed -i 's/EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend/EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend/' .env
-          sed -i 's/DJANGO_SUPERVISEUR_PASSWORD=change-me-now/DJANGO_SUPERVISEUR_PASSWORD=Strong-Docker-Test-Password-2026!/' .env
+          sed -i 's/EMAIL_ALLOW_SIMULATED_DELIVERY=0/EMAIL_ALLOW_SIMULATED_DELIVERY=1/' .env
+          sed -i 's/DJANGO_SUPERVISEUR_PASSWORD=/DJANGO_SUPERVISEUR_PASSWORD=Strong-Docker-Test-Password-2026!/' .env
       - name: Validate Compose
         run: docker compose config
       - name: Build and start stack
@@ -192,6 +196,52 @@ jobs:
           echo "$headers" | grep -qi '^X-Content-Type-Options: nosniff'
           echo "$headers" | grep -qi '^Referrer-Policy: same-origin'
           echo "$headers" | grep -qi '^Cross-Origin-Resource-Policy: same-origin'
+      - name: Seed six browser dossiers and collaborators
+        run: |
+          docker compose exec -T web python manage.py shell <<'PY'
+          from supervision.models import Anomalie, CampagneSupervision, ContactGroupe, GroupeResponsable, Systeme, Superviseur
+          sup = Superviseur.objects.get(username='superviseur')
+          targets = ['SMI', 'SICOM', 'SIBO', 'SMI', 'SICOM', 'SIBO']
+          for code in ('SMI', 'SICOM', 'SIBO'):
+              system = Systeme.objects.get(code_systeme=code)
+              group = GroupeResponsable.objects.filter(systeme=system, actif=True).first()
+              ContactGroupe.objects.get_or_create(group=group, email=f'{code.lower()}@example.com', defaults={'nom_complet': f'Browser {code}'})
+          for i, target in enumerate(targets, start=1):
+              campaign = CampagneSupervision.objects.create(superviseur=sup)
+              observed = Systeme.objects.get(code_systeme='SIBO' if target != 'SIBO' else 'SICOM')
+              Anomalie.objects.create(campagne=campaign, niveau='ENVOI', type_ecart='ABSENT', code_envoi=f'BROWSER-{i:02d}', systeme_ecart=observed, statut='ANALYSEE', empreinte_anomalie=f'browser-{i:02d}'.ljust(64, '0'))
+          PY
+      - name: Run six real Chromium supervisor cycles
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+          python - <<'PY'
+          from playwright.sync_api import sync_playwright
+
+          targets = ['SMI', 'SICOM', 'SIBO', 'SMI', 'SICOM', 'SIBO']
+          with sync_playwright() as p:
+              browser = p.chromium.launch(headless=True)
+              page = browser.new_page()
+              page.goto('http://127.0.0.1:8000/login/')
+              page.locator('input[name="username"]').fill('superviseur')
+              page.locator('input[name="password"]').fill('Strong-Docker-Test-Password-2026!')
+              page.locator('button[type="submit"]').click()
+              page.wait_for_url('http://127.0.0.1:8000/')
+              for i, target in enumerate(targets, start=1):
+                  page.goto(f'http://127.0.0.1:8000/anomalies/{i}/valider/')
+                  page.get_by_role('heading', name='Valider le diagnostic').wait_for()
+                  page.locator('input[name="decision"][value="MODIFIE"]').check()
+                  page.locator('#adjustmentPanel').wait_for(state='visible')
+                  page.locator('#id_motif_final').select_option(label='Ville obligatoire manquante')
+                  page.locator('#id_systeme_a_corriger_final').select_option(label=target)
+                  page.locator('#submitDecision').click()
+                  page.wait_for_url(f'http://127.0.0.1:8000/anomalies/{i}/')
+                  page.get_by_text('Notifiée', exact=True).first.wait_for()
+              browser.close()
+          PY
+      - name: Verify six browser notifications persisted
+        run: |
+          docker compose exec -T web python manage.py shell -c "from supervision.models import Notification; sent=Notification.objects.filter(statut='ENVOYEE'); assert sent.count()==6, sent.count(); assert set(sent.values_list('groupe__systeme__code_systeme',flat=True))=={'SMI','SICOM','SIBO'}"
       - name: Verify hardened runtime
         run: |
           docker compose exec -T web sh -c "grep '^Uid:' /proc/1/status | grep -Eq 'Uid:[[:space:]]+10001[[:space:]]+10001'"
