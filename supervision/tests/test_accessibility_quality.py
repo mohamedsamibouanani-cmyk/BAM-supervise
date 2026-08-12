@@ -49,6 +49,16 @@ class AccessibilityAndBrowserQualityTests(TestCase):
         self.assertIn("script-src 'self'", response.headers['Content-Security-Policy'])
         self.assertNotIn("script-src 'self' 'unsafe-inline'", response.headers['Content-Security-Policy'])
 
+    def test_campaign_javascript_is_external_and_avoids_dom_html_injection(self):
+        response = self.client.get(reverse('campaign_create'))
+        body = response.content.decode('utf-8')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('/static/supervision/campaign-form.js', body)
+        self.assertNotIn('state.innerHTML', body)
+        self.assertNotIn('refreshProgress =', body)
+        self.assertContains(response, 'aria-live="polite"')
+
     def test_icon_only_global_controls_have_accessible_names(self):
         response = self.client.get(reverse('anomaly_list'))
 
