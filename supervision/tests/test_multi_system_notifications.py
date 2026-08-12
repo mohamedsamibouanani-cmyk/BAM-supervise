@@ -21,11 +21,15 @@ class MultiSystemNotificationTests(TestCase):
 
         self.group_smi = GroupeResponsable.objects.create(systeme=self.smi, nom_groupe='Groupe SMI')
         self.group_sicom = GroupeResponsable.objects.create(systeme=self.sicom, nom_groupe='Groupe SICOM')
+        self.group_sibo = GroupeResponsable.objects.create(systeme=self.sibo, nom_groupe='Groupe SIBO')
         ContactGroupe.objects.create(
             groupe=self.group_smi, nom_complet='Collaborateur SMI', email='smi@example.com'
         )
         ContactGroupe.objects.create(
             groupe=self.group_sicom, nom_complet='Collaborateur SICOM', email='sicom@example.com'
+        )
+        ContactGroupe.objects.create(
+            groupe=self.group_sibo, nom_complet='Collaborateur SIBO', email='sibo@example.com'
         )
 
         self.motif = Motif.objects.create(
@@ -44,15 +48,18 @@ class MultiSystemNotificationTests(TestCase):
             systeme_ecart=self.sibo,
             empreinte_anomalie='m' * 64,
         )
+        # Simule un ancien dossier dont la cible persistée était incorrectement
+        # SIBO, alors que les preuves identifient bien SMI et SICOM comme sources
+        # contenant la cause. Le routage doit suivre les preuves, jamais la cible stale.
         self.prediction = PredictionMotif.objects.create(
             anomalie=self.anomaly,
             source_prediction=PredictionMotif.Source.APPRENTISSAGE,
             motif=self.motif,
-            systeme_a_corriger_predit=self.smi,
+            systeme_a_corriger_predit=self.sibo,
             rang=1,
             score_confiance='0.9500',
             explication={
-                'systemes_a_corriger': ['SMI', 'SICOM'],
+                'systemes_a_corriger': ['SIBO'],
                 'indices': [
                     {'systeme': 'SMI', 'champ': 'VILLE', 'constat': 'Champ vide ou absent dans la source'},
                     {'systeme': 'SICOM', 'champ': 'VILLE', 'constat': 'Champ vide ou absent dans la source'},
@@ -60,12 +67,14 @@ class MultiSystemNotificationTests(TestCase):
             },
         )
 
-    def test_accepted_prediction_notifies_every_responsible_system(self):
+    def test_accepted_prediction_notifies_evidence_systems_and_never_observed_sibo(self):
         validation = ValidationMotif.objects.create(
             anomalie=self.anomaly,
             prediction_retenue=self.prediction,
             motif_final=self.motif,
-            systeme_a_corriger_final=self.smi,
+            # Même le champ historique est volontairement faux pour vérifier que
+            # le service d'envoi ne lui fait pas confiance pour une acceptation.
+            systeme_a_corriger_final=self.sibo,
             superviseur=self.user,
             decision=ValidationMotif.Decision.ACCEPTE,
         )
@@ -80,6 +89,8 @@ class MultiSystemNotificationTests(TestCase):
         )
         self.assertEqual(len(mail.outbox), 2)
         self.assertEqual({message.to[0] for message in mail.outbox}, {'smi@example.com', 'sicom@example.com'})
+        self.assertFalse(Notification.objects.filter(validation=validation, groupe__systeme=self.sibo).exists())
+        self.assertFalse(any('sibo@example.com' in message.to for message in mail.outbox))
         self.assertTrue(any('Système responsable de la correction : SMI' in message.body for message in mail.outbox))
         self.assertTrue(any('Système responsable de la correction : SICOM' in message.body for message in mail.outbox))
         self.assertFalse(any('Système responsable de la correction : SIBO' in message.body for message in mail.outbox))
