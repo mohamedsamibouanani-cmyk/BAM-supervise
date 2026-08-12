@@ -81,7 +81,7 @@ class ValidationFormUiTests(TestCase):
         self.assertEqual(form.cleaned_data['motif_final'], self.motif_ville)
         self.assertEqual(form.cleaned_data['systeme_a_corriger_final'], self.smi)
 
-    def test_legacy_acceptance_without_any_prediction_keeps_explicit_correction(self):
+    def test_legacy_acceptance_without_any_prediction_keeps_explicit_choice(self):
         legacy_anomaly = Anomalie.objects.create(
             campagne=self.campaign,
             niveau='ENVOI',
@@ -103,17 +103,21 @@ class ValidationFormUiTests(TestCase):
         self.assertEqual(form.cleaned_data['motif_final'], self.motif_ville)
         self.assertEqual(form.cleaned_data['systeme_a_corriger_final'], self.smi)
 
-    def test_validation_page_is_compact_and_exposes_responsible_systems(self):
+    def test_validation_page_is_compact_and_decision_oriented(self):
         response = self.client.get(reverse('anomaly_validate', args=[self.anomaly.pk]))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Valider les corrections')
-        self.assertContains(response, 'Corrections détectées')
-        self.assertContains(response, 'Plusieurs causes peuvent être vraies en même temps')
-        self.assertContains(response, 'Décision du superviseur')
-        self.assertContains(response, 'Système(s) à corriger')
+        self.assertContains(response, 'Valider le diagnostic')
+        self.assertContains(response, 'Causes détectées')
+        self.assertContains(response, 'Décision')
+        self.assertContains(response, 'Systèmes concernés')
+        self.assertContains(response, 'Confirmer la sélection')
+        self.assertContains(response, 'Ajuster le diagnostic')
+        self.assertContains(response, 'À investiguer')
+        self.assertContains(response, 'Ville obligatoire manquante · 95%')
+        self.assertContains(response, 'Téléphone obligatoire manquant · 90%')
         self.assertContains(response, 'SMI')
         self.assertContains(response, 'SICOM')
         self.assertContains(response, 'validation-form.css')
-        self.assertContains(response, 'Accepter')
-        self.assertContains(response, 'Définir une autre correction')
+        self.assertNotContains(response, 'Valider les corrections')
+        self.assertNotContains(response, 'Corrections détectées')
