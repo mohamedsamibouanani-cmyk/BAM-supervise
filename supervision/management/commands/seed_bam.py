@@ -49,7 +49,6 @@ class Command(BaseCommand):
             ('FORMAT_TELEPHONE_INVALIDE', 'Format du téléphone invalide', 'ENVOI', 'FORMAT', 'TELEPHONE'),
             ('FORMAT_MONTANT_INCOMPATIBLE', 'Format de montant incompatible', 'ATTRIBUT', 'FORMAT', 'MONTANT'),
             ('FORMAT_TEXTE_INVALIDE', 'Format de texte invalide', 'ENVOI', 'FORMAT', ''),
-            ('ARTICLE_INVALIDE', 'Article ou libellé de service invalide', 'ENVOI', 'FORMAT', 'ARTICLE'),
             ('CHAMP_SOURCE_MANQUANT', 'Champ source obligatoire manquant', 'ENVOI', 'DONNEE', ''),
             ('CHAMP_OBLIGATOIRE_VIDE', 'Champ obligatoire vide', 'ATTRIBUT', 'DONNEE', ''),
             ('ATTRIBUT_DIFFERENT', 'Valeur d’attribut non synchronisée', 'ATTRIBUT', 'SYNCHRONISATION', ''),
@@ -102,20 +101,17 @@ class Command(BaseCommand):
                 'expression_regle': {}, 'seuil_confiance': 0.90, 'priorite': 25, 'actif': True,
             },
         )
-        for order, (field, motif_code) in enumerate((
-            ('NUM_COMMANDE', 'CHAMP_SOURCE_MANQUANT'),
-            ('ARTICLE', 'ARTICLE_INVALIDE'),
-            ('DES_ARTICLE', 'ARTICLE_INVALIDE'),
-        ), start=1):
-            RegleMetier.objects.update_or_create(
-                code_regle=f'ENVOI_STRUCTURE_{field}',
-                defaults={
-                    'attribut': None, 'motif_suggere': motifs[motif_code],
-                    'niveau_anomalie': 'ENVOI', 'type_controle': 'STRUCTURE_SOURCE',
-                    'expression_regle': {'field': field}, 'seuil_confiance': 0.90,
-                    'priorite': 25 + order, 'actif': True,
-                },
-            )
+        # Seules les structures source réellement confirmées sont initialisées.
+        # ARTICLE / DES_ARTICLE ne sont pas considérés comme invalides sans règle métier validée.
+        RegleMetier.objects.update_or_create(
+            code_regle='ENVOI_STRUCTURE_NUM_COMMANDE',
+            defaults={
+                'attribut': None, 'motif_suggere': motifs['CHAMP_SOURCE_MANQUANT'],
+                'niveau_anomalie': 'ENVOI', 'type_controle': 'STRUCTURE_SOURCE',
+                'expression_regle': {'field': 'NUM_COMMANDE'}, 'seuil_confiance': 0.90,
+                'priorite': 26, 'actif': True,
+            },
+        )
         for level in ('ENVOI', 'SERVICE'):
             for col in ('VILLE', 'VILLE_DESTINATION', 'PAYS', 'PAYS_DESTINATION'):
                 RegleMetier.objects.update_or_create(
