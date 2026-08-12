@@ -25,8 +25,26 @@ def _ensure_real_delivery_backend():
         raise RoutingError(str(exc)) from exc
 
 
-def _target_systems(validation):
-    """Resolve every correction target while keeping legacy single-system validations compatible."""
+def _active_validations(validation):
+    """Return the current correction set for the dossier.
+
+    A legacy dossier has one final ValidationMotif. A multi-cause dossier has one
+    final ValidationMotif per accepted cause. Old revisions are excluded.
+    """
+    if not validation.est_finale:
+        return [validation]
+    rows = list(
+        validation.anomalie.validations.filter(est_finale=True)
+        .select_related(
+            'motif_final', 'systeme_a_corriger_final',
+            'prediction_retenue__motif', 'prediction_retenue__systeme_a_corriger_predit',
+        )
+        .order_by('version_validation', 'pk')
+    )
+    return rows or [validation]
+
+
+def _validation_target_codes(validation):
     codes = []
     if validation.decision == ValidationMotif.Decision.ACCEPTE and validation.prediction_retenue_id:
         explanation = validation.prediction_retenue.explication or {}
@@ -34,9 +52,18 @@ def _target_systems(validation):
             code = str(code or '').strip().upper()
             if code and code not in codes:
                 codes.append(code)
-
     if not codes and validation.systeme_a_corriger_final_id:
         codes.append(validation.systeme_a_corriger_final.code_systeme)
+    return codes
+
+
+def _target_systems(validation):
+    """Resolve the union of systems responsible for every active correction."""
+    codes = []
+    for correction in _active_validations(validation):
+        for code in _validation_target_codes(correction):
+            if code not in codes:
+                codes.append(code)
 
     systems_by_code = {
         system.code_systeme: system
@@ -48,14 +75,56 @@ def _target_systems(validation):
     return systems
 
 
+def _corrections_for_system(validation, system):
+    """Return only the causes that concern the requested system."""
+    corrections = []
+    for item in _active_validations(validation):
+        if system.code_systeme not in _validation_target_codes(item):
+            continue
+
+        explanation = item.prediction_retenue.explication or {} if item.prediction_retenue_id else {}
+        indices = explanation.get('indices') or []
+        local_indices = [
+            index for index in indices
+            if str(index.get('systeme') or '').strip().upper() == system.code_systeme
+        ]
+        useful_indices = local_indices or indices
+        field = item.motif_final.champ_typique or '-'
+        if useful_indices and useful_indices[0].get('champ'):
+            field = useful_indices[0]['champ']
+        elif explanation.get('attribut_analyse'):
+            field = explanation['attribut_analyse']
+
+        constats = []
+        for index in useful_indices:
+            constat = str(index.get('constat') or '').strip()
+            if constat and constat not in constats:
+                constats.append(constat)
+
+        corrections.append({
+            'validation': item,
+            'motif': item.motif_final,
+            'field': field,
+            'constat': ' ; '.join(constats),
+            'score': (
+                float(item.prediction_retenue.score_confiance) * 100
+                if item.prediction_retenue_id else None
+            ),
+        })
+    return corrections
+
+
 def route_group(validation, system):
-    rule = RegleAffectation.objects.filter(
-        systeme_a_corriger=system,
-        motif=validation.motif_final,
-        actif=True,
-    ).select_related('groupe').order_by('priorite').first()
-    if rule:
-        return rule.groupe
+    """Route using the first matching cause for this system, then fallback to its active group."""
+    for correction in _corrections_for_system(validation, system):
+        rule = RegleAffectation.objects.filter(
+            systeme_a_corriger=system,
+            motif=correction['motif'],
+            actif=True,
+        ).select_related('groupe').order_by('priorite').first()
+        if rule:
+            return rule.groupe
+
     fallback = GroupeResponsable.objects.filter(
         systeme=system,
         actif=True,
@@ -73,12 +142,15 @@ def build_email(validation, group, system):
         element = f'Service {anomaly.code_service} de l’envoi {anomaly.code_envoi}'
     else:
         element = f'Attribut {anomaly.attribut.code_attribut if anomaly.attribut_id else "-"} de l’envoi {anomaly.code_envoi}'
-    diagnostic_field = validation.motif_final.champ_typique or '-'
-    if validation.prediction_retenue_id:
-        explanation = validation.prediction_retenue.explication or {}
-        indices = explanation.get('indices') or []
-        if indices and indices[0].get('champ'):
-            diagnostic_field = indices[0]['champ']
+
+    corrections = _corrections_for_system(validation, system)
+    primary = corrections[0] if corrections else {
+        'motif': validation.motif_final,
+        'field': validation.motif_final.champ_typique or '-',
+        'constat': '',
+        'score': None,
+    }
+
     subject = f'[BAM Supervise][{system.code_systeme}] {anomaly.niveau} {anomaly.type_ecart} - {anomaly.code_envoi}'
     if anomaly.type_ecart == Anomalie.TypeEcart.DIFFERENT:
         gap_description = 'Valeurs observées : ' + ' ; '.join(
@@ -91,6 +163,18 @@ def build_email(validation, group, system):
             f'Système où l’élément manque : {observed_system}\n'
             f'Système où l’anomalie est observée : {observed_system}'
         )
+
+    correction_lines = []
+    for correction in corrections:
+        line = f'- {correction["motif"].libelle} | champ : {correction["field"]}'
+        if correction['constat']:
+            line += f' | constat : {correction["constat"]}'
+        if correction['score'] is not None:
+            line += f' | confiance : {correction["score"]:.0f}%'
+        correction_lines.append(line)
+    if not correction_lines:
+        correction_lines.append(f'- {primary["motif"].libelle} | champ : {primary["field"]}')
+
     body = (
         f'Bonjour,\n\n'
         f'BAM Supervise a détecté une anomalie de synchronisation.\n\n'
@@ -99,12 +183,16 @@ def build_email(validation, group, system):
         f'{gap_description}\n'
         f'Service : {anomaly.code_service or "-"}\n'
         f'Attribut : {anomaly.attribut.code_attribut if anomaly.attribut_id else "-"}\n'
-        f'Motif validé : {validation.motif_final.libelle}\n'
-        f'Champ source à vérifier : {diagnostic_field}\n'
+        # Libellés historiques conservés pour les anciens traitements/tests.
+        f'Motif validé : {primary["motif"].libelle}\n'
+        f'Champ source à vérifier : {primary["field"]}\n'
         f'Système à corriger : {system.code_systeme}\n'
-        f'Système responsable de la correction : {system.code_systeme}\n'
+        f'Système responsable de la correction : {system.code_systeme}\n\n'
+        f'Corrections demandées pour {system.code_systeme} :\n'
+        + '\n'.join(correction_lines)
+        + '\n\n'
         f'Commentaire : {validation.commentaire or "-"}\n\n'
-        f'Merci de corriger la donnée dans votre système. '
+        f'Merci de corriger ces données dans votre système. '
         f'La résolution sera vérifiée lors du prochain import.\n\n'
         f'BAM Supervise'
     )
@@ -114,8 +202,6 @@ def build_email(validation, group, system):
 def _send_one(validation, system):
     group = route_group(validation, system)
 
-    # Tous les collaborateurs enregistrés pour le groupe sont destinataires.
-    # BAM Supervise ne maintient pas de statut métier actif/inactif des collaborateurs.
     contacts = list(group.contacts.all().order_by('id'))
     emails = []
     for contact in contacts:
@@ -128,8 +214,6 @@ def _send_one(validation, system):
 
     subject, body = build_email(validation, group, system)
 
-    # Une notification distincte est persistée par système responsable.
-    # Cela rend le routage multi-systèmes traçable sans codage spécifique SMI/SICOM/SIBO.
     with transaction.atomic():
         notification = Notification.objects.create(
             validation=validation,
@@ -182,8 +266,6 @@ def _send_one(validation, system):
                 row.save(update_fields=['statut_livraison', 'envoyee_le'])
         return notification
     except Exception as exc:
-        # Failure status must survive the raised exception so the UI can display it
-        # and the supervisor can retry later.
         with transaction.atomic():
             notification.statut = Notification.Statut.ECHEC
             notification.erreur = str(exc)[:2000]
@@ -196,7 +278,11 @@ def _send_one(validation, system):
 
 
 def send_validation_email(validation):
-    """Notify every responsible system and keep one Notification row per routed system."""
+    """Send one traceable notification per responsible system.
+
+    When several causes were accepted together, their systems are unioned and each
+    email contains only the corrections relevant to its destination system.
+    """
     systems = _target_systems(validation)
     sent_notifications = []
     failures = []
@@ -231,6 +317,4 @@ def send_validation_email(validation):
             raise RoutingError(f'Notification partielle : {details}')
         raise RoutingError(details)
 
-    # Compatibilité avec l’API historique : pour un système unique, les appels existants
-    # continuent de recevoir directement l’objet Notification.
     return sent_notifications[0]
