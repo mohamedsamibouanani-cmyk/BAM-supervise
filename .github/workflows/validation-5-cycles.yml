@@ -92,7 +92,7 @@ jobs:
           python-version: '3.12'
       - run: pip install -r requirements.txt
       - name: Email delivery routing and retry tests
-        run: python manage.py test supervision.tests.test_email supervision.tests.test_email_five_cycles supervision.tests.test_multi_system_notifications supervision.tests.test_multi_cause_notifications supervision.tests.test_notification_retry
+        run: python manage.py test supervision.tests.test_email supervision.tests.test_email_five_cycles supervision.tests.test_multi_system_notifications supervision.tests.test_multi_cause_corrections supervision.tests.test_notification_retry
       - name: Full Django regression suite
         run: python manage.py test
 
