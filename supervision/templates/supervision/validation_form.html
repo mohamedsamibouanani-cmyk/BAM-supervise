@@ -1,6 +1,6 @@
 {% extends 'supervision/base.html' %}
 {% load static %}
-{% block title %}Valider les corrections · BAM Supervise{% endblock %}
+{% block title %}Valider le diagnostic · BAM Supervise{% endblock %}
 {% block head %}<link rel="stylesheet" href="{% static 'supervision/validation-form.css' %}">{% endblock %}
 {% block content %}
 <div class="validation-shell">
@@ -9,7 +9,7 @@
     <div class="validation-head-row">
       <div>
         <div class="validation-eyebrow">Dossier #{{ anomaly.pk }}</div>
-        <h1>Valider les corrections</h1>
+        <h1>Valider le diagnostic</h1>
         <p>
           <strong>{{ anomaly.code_envoi }}</strong>
           <span>·</span> {{ anomaly.get_niveau_display }} {{ anomaly.get_type_ecart_display|lower }}
@@ -26,72 +26,78 @@
       {{ form.multi_cause_mode }}
       {% if form.non_field_errors %}<div class="alert alert-danger validation-error">{{ form.non_field_errors }}</div>{% endif %}
 
-      <section class="validation-section">
-        <div class="validation-section-head">
-          <span class="validation-step">1</span>
+      <div class="validation-main-grid">
+        <section class="validation-panel validation-causes-panel" id="causesPanel">
+          <div class="validation-panel-head">
+            <div>
+              <span class="validation-kicker">Diagnostic</span>
+              <h2>Causes détectées</h2>
+              <p>Sélectionnez uniquement les causes que vous confirmez.</p>
+            </div>
+            {% if anomaly.predictions.count %}<span class="validation-count-badge">{{ anomaly.predictions.count }}</span>{% endif %}
+          </div>
+
+          <div class="validation-cause-options">
+            {{ form.predictions }}
+          </div>
+          {% if form.predictions.errors %}<div class="text-danger small mt-2">{{ form.predictions.errors }}</div>{% endif %}
+
+          <div class="validation-selection-bar" id="selectionSummary" hidden aria-live="polite">
+            <strong id="selectedCountText">Sélection en cours</strong>
+            <div class="validation-selection-targets">
+              <span>Systèmes concernés</span>
+              <div class="validation-target-list" id="selectedTargets"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="validation-panel validation-decision-panel">
+          <div class="validation-panel-head">
+            <div>
+              <span class="validation-kicker">Action</span>
+              <h2>Décision</h2>
+              <p>Choisissez la suite à donner au dossier.</p>
+            </div>
+          </div>
+
+          <div class="validation-decision-options">{{ form.decision }}</div>
+          {% if form.decision.errors %}<div class="text-danger small mt-2">{{ form.decision.errors }}</div>{% endif %}
+          <p class="validation-decision-help" id="decisionHelp">Les causes sélectionnées seront validées ensemble.</p>
+        </section>
+      </div>
+
+      <section class="validation-adjustment" id="adjustmentPanel" hidden>
+        <div class="validation-adjustment-head">
           <div>
-            <h2>Corrections détectées</h2>
-            <p>Plusieurs causes peuvent être vraies en même temps. Gardez cochées uniquement celles que vous confirmez.</p>
+            <span class="validation-kicker">Précision</span>
+            <h2 id="adjustmentTitle">Ajuster le diagnostic</h2>
+            <p id="adjustmentHint">Définissez la cause et le système responsable.</p>
           </div>
-        </div>
-
-        <div class="validation-correction-options">
-          {{ form.predictions }}
-        </div>
-        {% if form.predictions.errors %}<div class="text-danger small mt-2">{{ form.predictions.errors }}</div>{% endif %}
-
-        <div class="validation-selection-summary" id="selectionSummary">
-          <div>
-            <span>Corrections retenues</span>
-            <strong id="selectedCount">0</strong>
-          </div>
-          <div class="validation-summary-targets">
-            <span>Système(s) à corriger</span>
-            <div class="validation-target-list" id="selectedTargets"><em>À déterminer</em></div>
-          </div>
-        </div>
-      </section>
-
-      <section class="validation-section validation-decision-section">
-        <div class="validation-section-head">
-          <span class="validation-step">2</span>
-          <div><h2>Décision du superviseur</h2><p>Validez l’ensemble sélectionné ou définissez une correction différente.</p></div>
-        </div>
-
-        <div class="validation-decision-options">{{ form.decision }}</div>
-        {% if form.decision.errors %}<div class="text-danger small mt-1">{{ form.decision.errors }}</div>{% endif %}
-        <p class="validation-decision-help" id="decisionHelp">Chaque système recevra uniquement les corrections qui le concernent.</p>
-      </section>
-
-      <section class="validation-section validation-adjustment" id="adjustmentPanel">
-        <div class="validation-section-head compact">
-          <span class="validation-step">3</span>
-          <div><h2>Définir une autre correction</h2><p>Utilisez cette zone seulement si les corrections proposées ne conviennent pas.</p></div>
         </div>
 
         <div class="validation-adjust-grid">
-          <div class="validation-motif-field">
-            <label class="form-label" for="{{ form.motif_final.id_for_label }}">Motif retenu</label>
-            {{ form.motif_final }}
-            {% if form.motif_final.errors %}<div class="text-danger small mt-1">{{ form.motif_final.errors }}</div>{% endif %}
-          </div>
           <div class="validation-system-field">
-            <label class="form-label" for="{{ form.systeme_a_corriger_final.id_for_label }}">Système à corriger / investiguer</label>
+            <label class="form-label" for="{{ form.systeme_a_corriger_final.id_for_label }}">Système responsable</label>
             {{ form.systeme_a_corriger_final }}
             {% if form.systeme_a_corriger_final.errors %}<div class="text-danger small mt-1">{{ form.systeme_a_corriger_final.errors }}</div>{% endif %}
           </div>
+          <div class="validation-motif-field">
+            <label class="form-label" for="{{ form.motif_final.id_for_label }}">Cause retenue</label>
+            {{ form.motif_final }}
+            {% if form.motif_final.errors %}<div class="text-danger small mt-1">{{ form.motif_final.errors }}</div>{% endif %}
+          </div>
           <div class="validation-new-reason">
             <div class="validation-or"><span>ou</span></div>
-            <label class="form-label" for="{{ form.nouveau_motif.id_for_label }}">Saisir la cause réelle</label>
+            <label class="form-label" for="{{ form.nouveau_motif.id_for_label }}">Nouvelle cause</label>
             {{ form.nouveau_motif }}
             {% if form.nouveau_motif.errors %}<div class="text-danger small mt-1">{{ form.nouveau_motif.errors }}</div>{% endif %}
-            <small>Une nouvelle cause validée sera mémorisée pour les prochains dossiers similaires.</small>
+            <small>Une cause confirmée pourra être réutilisée pour des dossiers similaires.</small>
           </div>
         </div>
       </section>
 
       <details class="validation-comment" {% if form.commentaire.errors or form.commentaire.value %}open{% endif %}>
-        <summary><span><i class="bi bi-chat-left-text"></i> Ajouter un commentaire</span><small>Facultatif</small></summary>
+        <summary><span><i class="bi bi-chat-left-text"></i> Ajouter une note</span><small>Facultatif</small></summary>
         <div class="validation-comment-body">
           {{ form.commentaire }}
           {% if form.commentaire.errors %}<div class="text-danger small mt-1">{{ form.commentaire.errors }}</div>{% endif %}
@@ -99,10 +105,12 @@
       </details>
 
       <footer class="validation-actions">
-        <p><i class="bi bi-envelope-check"></i> Un seul message est préparé par système, avec uniquement les champs qu’il doit corriger.</p>
+        <p id="footerSummary"><i class="bi bi-envelope-check"></i><span>La validation notifiera les systèmes concernés.</span></p>
         <div>
           <a class="btn btn-light" href="{% url 'anomaly_detail' anomaly.pk %}">Annuler</a>
-          <button class="btn btn-primary" type="submit"><i class="bi bi-check2-square me-1"></i> Valider et notifier</button>
+          <button class="btn btn-primary" type="submit" id="submitDecision">
+            <i class="bi bi-check2-square me-1"></i><span id="submitDecisionLabel">Valider et notifier</span>
+          </button>
         </div>
       </footer>
     </form>
@@ -126,82 +134,153 @@
 {% block scripts %}
 <script>
 (function () {
-  const checkboxes = Array.from(document.querySelectorAll('input[name="predictions"]'));
-  const legacyPrediction = document.getElementById('{{ form.prediction.id_for_label }}');
-  const motifSelect = document.getElementById('{{ form.motif_final.id_for_label }}');
-  const systemSelect = document.getElementById('{{ form.systeme_a_corriger_final.id_for_label }}');
-  const decisionInputs = document.querySelectorAll('input[name="decision"]');
-  const adjustmentPanel = document.getElementById('adjustmentPanel');
-  const motifField = adjustmentPanel.querySelector('.validation-motif-field');
-  const newReason = adjustmentPanel.querySelector('.validation-new-reason');
-  const decisionHelp = document.getElementById('decisionHelp');
-  const countOutput = document.getElementById('selectedCount');
-  const targetsOutput = document.getElementById('selectedTargets');
+  function initValidationPage() {
+    const checkboxes = Array.from(document.querySelectorAll('input[name="predictions"]'));
+    const legacyPrediction = document.getElementById('{{ form.prediction.id_for_label }}');
+    const motifSelect = document.getElementById('{{ form.motif_final.id_for_label }}');
+    const systemSelect = document.getElementById('{{ form.systeme_a_corriger_final.id_for_label }}');
+    const decisionInputs = Array.from(document.querySelectorAll('input[name="decision"]'));
+    const adjustmentPanel = document.getElementById('adjustmentPanel');
+    const motifField = adjustmentPanel ? adjustmentPanel.querySelector('.validation-motif-field') : null;
+    const newReason = adjustmentPanel ? adjustmentPanel.querySelector('.validation-new-reason') : null;
+    const decisionHelp = document.getElementById('decisionHelp');
+    const selectionSummary = document.getElementById('selectionSummary');
+    const countText = document.getElementById('selectedCountText');
+    const targetsOutput = document.getElementById('selectedTargets');
+    const footerSummary = document.getElementById('footerSummary');
+    const adjustmentTitle = document.getElementById('adjustmentTitle');
+    const adjustmentHint = document.getElementById('adjustmentHint');
+    const submitButton = document.getElementById('submitDecision');
+    const submitLabel = document.getElementById('submitDecisionLabel');
 
-  const metadata = {};
-  document.querySelectorAll('#predictionMetadata [data-prediction-id]').forEach(function (node) {
-    metadata[node.dataset.predictionId] = {
-      motifId: node.dataset.motifId,
-      motif: node.dataset.motif,
-      score: node.dataset.score,
-      systemId: node.dataset.systemId,
-      targets: (node.dataset.targets || '').split(',').filter(Boolean)
-    };
-  });
+    if (!adjustmentPanel || !selectionSummary || !countText || !targetsOutput) return;
 
-  function selectedDecision() {
-    const checked = document.querySelector('input[name="decision"]:checked');
-    return checked ? checked.value : 'ACCEPTE';
-  }
-
-  function selectedPredictions() {
-    return checkboxes.filter(function (input) { return input.checked; });
-  }
-
-  function renderSelection() {
-    const selected = selectedPredictions();
-    countOutput.textContent = String(selected.length);
-    const targets = [];
-    selected.forEach(function (input) {
-      const item = metadata[input.value];
-      if (!item) return;
-      item.targets.forEach(function (code) {
-        if (!targets.includes(code)) targets.push(code);
-      });
+    const metadata = {};
+    document.querySelectorAll('#predictionMetadata [data-prediction-id]').forEach(function (node) {
+      metadata[node.dataset.predictionId] = {
+        motifId: node.dataset.motifId,
+        systemId: node.dataset.systemId,
+        targets: (node.dataset.targets || '').split(',').map(function (value) {
+          return value.trim();
+        }).filter(Boolean)
+      };
     });
-    targetsOutput.innerHTML = targets.length
-      ? targets.map(function (code) { return '<span class="validation-target">' + code + '</span>'; }).join('')
-      : '<em>Aucune correction sélectionnée</em>';
 
-    const primary = selected.length ? metadata[selected[0].value] : null;
-    legacyPrediction.value = selected.length ? selected[0].value : '';
-    if (selectedDecision() === 'ACCEPTE' && primary) {
-      if (primary.motifId) motifSelect.value = primary.motifId;
-      if (primary.systemId) systemSelect.value = primary.systemId;
+    function selectedDecision() {
+      const checked = document.querySelector('input[name="decision"]:checked');
+      return checked ? checked.value : 'ACCEPTE';
     }
+
+    function selectedPredictions() {
+      return checkboxes.filter(function (input) { return input.checked; });
+    }
+
+    function selectedTargets(selected) {
+      const targets = [];
+      selected.forEach(function (input) {
+        const item = metadata[input.value];
+        if (!item) return;
+        item.targets.forEach(function (code) {
+          if (!targets.includes(code)) targets.push(code);
+        });
+      });
+      return targets;
+    }
+
+    function renderTargetList(targets) {
+      targetsOutput.replaceChildren();
+      if (!targets.length) {
+        const empty = document.createElement('em');
+        empty.textContent = 'À déterminer';
+        targetsOutput.appendChild(empty);
+        return;
+      }
+      targets.forEach(function (code) {
+        const tag = document.createElement('span');
+        tag.className = 'validation-target';
+        tag.textContent = code;
+        targetsOutput.appendChild(tag);
+      });
+    }
+
+    function renderSelection() {
+      const selected = selectedPredictions();
+      const targets = selectedTargets(selected);
+      const count = selected.length;
+      countText.textContent = count + ' cause' + (count > 1 ? 's' : '') + ' sélectionnée' + (count > 1 ? 's' : '');
+      renderTargetList(targets);
+      selectionSummary.hidden = false;
+
+      const primary = count ? metadata[selected[0].value] : null;
+      if (legacyPrediction) legacyPrediction.value = count ? selected[0].value : '';
+      if (selectedDecision() === 'ACCEPTE' && primary) {
+        if (motifSelect && primary.motifId) motifSelect.value = primary.motifId;
+        if (systemSelect && primary.systemId) systemSelect.value = primary.systemId;
+      }
+
+      if (selectedDecision() === 'ACCEPTE' && submitButton) {
+        submitButton.disabled = count === 0;
+      }
+
+      if (footerSummary && selectedDecision() === 'ACCEPTE') {
+        const copy = footerSummary.querySelector('span');
+        if (copy) {
+          copy.textContent = count
+            ? count + ' cause' + (count > 1 ? 's' : '') + (targets.length ? ' · ' + targets.join(', ') : '')
+            : 'Sélectionnez au moins une cause.';
+        }
+      }
+    }
+
+    function renderDecision() {
+      const decision = selectedDecision();
+      const isAccept = decision === 'ACCEPTE';
+      const isModify = decision === 'MODIFIE';
+      const isUnknown = decision === 'INCONNU';
+
+      adjustmentPanel.hidden = isAccept;
+      if (motifField) motifField.hidden = !isModify;
+      if (newReason) newReason.hidden = !isModify;
+
+      if (isAccept) {
+        decisionHelp.textContent = 'Les causes cochées seront validées ensemble.';
+        submitLabel.textContent = 'Valider et notifier';
+      } else if (isModify) {
+        decisionHelp.textContent = 'Définissez une cause plus juste avant validation.';
+        adjustmentTitle.textContent = 'Ajuster le diagnostic';
+        adjustmentHint.textContent = 'Choisissez le système responsable et la cause retenue.';
+        submitLabel.textContent = 'Enregistrer et notifier';
+        submitButton.disabled = false;
+        const copy = footerSummary.querySelector('span');
+        if (copy) copy.textContent = 'Le diagnostic ajusté sera enregistré avant notification.';
+      } else if (isUnknown) {
+        decisionHelp.textContent = 'La cause n’est pas encore suffisamment certaine.';
+        adjustmentTitle.textContent = 'Poursuivre l’investigation';
+        adjustmentHint.textContent = 'Choisissez le système qui doit approfondir l’analyse.';
+        submitLabel.textContent = 'Envoyer pour investigation';
+        submitButton.disabled = false;
+        const copy = footerSummary.querySelector('span');
+        if (copy) copy.textContent = 'Le système choisi sera sollicité pour investigation.';
+      }
+
+      renderSelection();
+    }
+
+    checkboxes.forEach(function (input) {
+      input.addEventListener('change', renderSelection);
+    });
+    decisionInputs.forEach(function (input) {
+      input.addEventListener('change', renderDecision);
+    });
+
+    renderDecision();
   }
 
-  function renderDecision() {
-    const decision = selectedDecision();
-    const isAccept = decision === 'ACCEPTE';
-    const isModify = decision === 'MODIFIE';
-    adjustmentPanel.hidden = isAccept;
-    motifField.hidden = !isModify;
-    newReason.hidden = !isModify;
-
-    if (isAccept) {
-      decisionHelp.textContent = 'Toutes les corrections cochées seront retenues ensemble. Chaque système recevra uniquement celles qui le concernent.';
-    } else if (isModify) {
-      decisionHelp.textContent = 'Les corrections cochées sont remplacées par la correction que vous définissez ci-dessous.';
-    } else {
-      decisionHelp.textContent = 'La cause reste à investiguer ; précisez le système qui doit effectuer l’analyse.';
-    }
-    renderSelection();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initValidationPage, {once: true});
+  } else {
+    initValidationPage();
   }
-
-  checkboxes.forEach(function (input) { input.addEventListener('change', renderSelection); });
-  decisionInputs.forEach(function (input) { input.addEventListener('change', renderDecision); });
-  renderDecision();
 })();
 </script>
 {% endblock %}
