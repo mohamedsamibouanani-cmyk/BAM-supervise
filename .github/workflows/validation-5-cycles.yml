@@ -204,8 +204,8 @@ jobs:
           targets = ['SMI', 'SICOM', 'SIBO', 'SMI', 'SICOM', 'SIBO']
           for code in ('SMI', 'SICOM', 'SIBO'):
               system = Systeme.objects.get(code_systeme=code)
-              group = GroupeResponsable.objects.filter(systeme=system, actif=True).first()
-              ContactGroupe.objects.get_or_create(group=group, email=f'{code.lower()}@example.com', defaults={'nom_complet': f'Browser {code}'})
+              groupe = GroupeResponsable.objects.filter(systeme=system, actif=True).first()
+              ContactGroupe.objects.get_or_create(groupe=groupe, email=f'{code.lower()}@example.com', defaults={'nom_complet': f'Browser {code}'})
           for i, target in enumerate(targets, start=1):
               campaign = CampagneSupervision.objects.create(superviseur=sup)
               observed = Systeme.objects.get(code_systeme='SIBO' if target != 'SIBO' else 'SICOM')
