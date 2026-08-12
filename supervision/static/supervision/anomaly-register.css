@@ -13,44 +13,6 @@
 .anomaly-register-title .page-title{margin-bottom:5px}
 .anomaly-register-title .page-subtitle{max-width:720px;margin-bottom:0}
 
-.anomaly-register-mode{
-  display:flex;
-  align-items:center;
-  gap:12px;
-  flex:0 0 auto;
-  min-width:330px;
-  padding:10px 11px 10px 14px;
-  border:1px solid #dfe6f1;
-  border-radius:14px;
-  background:#fff;
-  box-shadow:0 5px 18px rgba(26,58,117,.045);
-}
-.anomaly-mode-status{
-  display:inline-flex;
-  align-items:center;
-  gap:7px;
-  padding:6px 9px;
-  border-radius:999px;
-  background:#fff8c8;
-  color:#735b00;
-  font-size:9px;
-  font-weight:850;
-  letter-spacing:.04em;
-  text-transform:uppercase;
-  white-space:nowrap;
-}
-.anomaly-mode-dot{
-  width:7px;
-  height:7px;
-  border-radius:50%;
-  background:#e2bd00;
-  box-shadow:0 0 0 3px rgba(255,220,0,.18);
-}
-.anomaly-mode-copy{display:flex;min-width:0;flex:1;flex-direction:column;line-height:1.15}
-.anomaly-mode-copy strong{color:#263955;font-size:10px;font-weight:850}
-.anomaly-mode-copy small{margin-top:3px;color:#8995a5;font-size:9px;white-space:nowrap}
-.anomaly-import-btn{white-space:nowrap}
-
 .anomaly-views{
   display:grid;
   grid-template-columns:repeat(4,minmax(0,1fr));
@@ -240,13 +202,11 @@
 .anomaly-action .btn{min-width:82px;font-size:9.5px;font-weight:800}
 
 @media(max-width:1199.98px){
-  .anomaly-register-mode{min-width:300px}
   .anomaly-table th:nth-child(3),.anomaly-table td:nth-child(3){display:none}
 }
 
 @media(max-width:991.98px){
   .anomaly-register-head{align-items:flex-start;flex-direction:column;gap:12px}
-  .anomaly-register-mode{width:100%;min-width:0}
   .anomaly-toolbar{grid-template-columns:minmax(0,1fr) minmax(145px,190px) auto}
   .anomaly-more{grid-column:1/-1}
   .anomaly-more summary{justify-content:flex-start}
@@ -259,9 +219,6 @@
 }
 
 @media(max-width:575.98px){
-  .anomaly-register-mode{align-items:stretch;flex-wrap:wrap}
-  .anomaly-mode-copy{min-width:120px}
-  .anomaly-import-btn{width:100%}
   .anomaly-views{grid-template-columns:1fr 1fr}
   .anomaly-toolbar{grid-template-columns:1fr}
   .anomaly-main-filter,.anomaly-toolbar>.btn{width:100%}
