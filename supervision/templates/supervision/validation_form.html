@@ -5,7 +5,7 @@
   <div>
     <div class="page-eyebrow"><a href="{% url 'anomaly_detail' anomaly.pk %}"><i class="bi bi-arrow-left"></i> Dossier #{{ anomaly.pk }}</a></div>
     <h1 class="page-title">Validation du motif</h1>
-    <p class="page-subtitle">Confirmez la cause ou saisissez un nouveau motif, puis notifiez le collaborateur.</p>
+    <p class="page-subtitle">Confirmez la cause ou saisissez un nouveau motif, puis notifiez les équipes responsables.</p>
   </div>
 </div>
 
@@ -20,21 +20,21 @@
         <form method="post">{% csrf_token %}
           {% if form.non_field_errors %}<div class="alert alert-danger">{{ form.non_field_errors }}</div>{% endif %}
           <div class="row g-3">
-            <div class="col-12"><label class="form-label" for="{{ form.prediction.id_for_label }}">Proposition retenue</label>{{ form.prediction }}{% if form.prediction.errors %}<div class="text-danger small mt-1">{{ form.prediction.errors }}</div>{% endif %}<div class="text-secondary mt-1" style="font-size:10px">Choisissez une proposition existante ou modifiez directement le motif ci-dessous.</div></div>
+            <div class="col-12"><label class="form-label" for="{{ form.prediction.id_for_label }}">Proposition retenue</label>{{ form.prediction }}{% if form.prediction.errors %}<div class="text-danger small mt-1">{{ form.prediction.errors }}</div>{% endif %}<div class="text-secondary mt-1" style="font-size:10px">Une proposition peut identifier plusieurs systèmes responsables. Si vous l’acceptez, chacun de ces systèmes sera routé vers son propre groupe.</div></div>
             <div class="col-md-6"><label class="form-label" for="{{ form.motif_final.id_for_label }}">Motif proposé</label>{{ form.motif_final }}{% if form.motif_final.errors %}<div class="text-danger small mt-1">{{ form.motif_final.errors }}</div>{% endif %}</div>
-            <div class="col-md-6"><label class="form-label" for="{{ form.systeme_a_corriger_final.id_for_label }}">Système à corriger</label>{{ form.systeme_a_corriger_final }}{% if form.systeme_a_corriger_final.errors %}<div class="text-danger small mt-1">{{ form.systeme_a_corriger_final.errors }}</div>{% endif %}</div>
+            <div class="col-md-6"><label class="form-label" for="{{ form.systeme_a_corriger_final.id_for_label }}">Système explicite / principal</label>{{ form.systeme_a_corriger_final }}{% if form.systeme_a_corriger_final.errors %}<div class="text-danger small mt-1">{{ form.systeme_a_corriger_final.errors }}</div>{% endif %}<div class="text-secondary mt-1" style="font-size:10px">Avec « Accepter », BAM Supervise utilise toutes les cibles de la proposition. Avec « Modifier », ce système devient la cible explicite de votre décision.</div></div>
             <div class="col-12"><div class="form-separator"><span>ou</span></div><label class="form-label" for="{{ form.nouveau_motif.id_for_label }}">Saisir la cause réelle</label>{{ form.nouveau_motif }}{% if form.nouveau_motif.errors %}<div class="text-danger small mt-1">{{ form.nouveau_motif.errors }}</div>{% endif %}<div class="text-secondary mt-1" style="font-size:10px">Ce motif sera mémorisé après validation et pourra être proposé pour un prochain dossier similaire.</div></div>
             <div class="col-md-6"><label class="form-label" for="{{ form.decision.id_for_label }}">Type de décision</label>{{ form.decision }}{% if form.decision.errors %}<div class="text-danger small mt-1">{{ form.decision.errors }}</div>{% endif %}</div>
             <div class="col-12"><label class="form-label" for="{{ form.commentaire.id_for_label }}">Commentaire</label>{{ form.commentaire }}{% if form.commentaire.errors %}<div class="text-danger small mt-1">{{ form.commentaire.errors }}</div>{% endif %}</div>
           </div>
           <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mt-4 pt-3 border-top">
-            <div class="text-secondary" style="font-size:11px"><i class="bi bi-envelope-check me-1"></i> Après validation, BAM Supervise applique motif + système à corriger → groupe responsable.</div>
+            <div class="text-secondary" style="font-size:11px"><i class="bi bi-envelope-check me-1"></i> Après validation : motif + système(s) responsable(s) → groupe(s) responsable(s) → notification(s) traçable(s).</div>
             <div class="d-flex gap-2"><a class="btn btn-light" href="{% url 'anomaly_detail' anomaly.pk %}">Annuler</a><button class="btn btn-primary" type="submit"><i class="bi bi-check2-square me-1"></i> Valider et notifier</button></div>
           </div>
         </form>
       </div>
     </section>
   </div>
-  <div class="col-xl-4"><section class="panel"><div class="panel-body"><div class="decision-summary"><i class="bi bi-envelope-check"></i><h3>Après validation</h3><p>Le collaborateur reçoit le code d’envoi, l’attribut concerné, les valeurs observées ou le système manquant, le motif validé et le champ à corriger.</p></div></div></section></div>
+  <div class="col-xl-4"><section class="panel"><div class="panel-body"><div class="decision-summary"><i class="bi bi-envelope-check"></i><h3>Après validation</h3><p>Chaque groupe concerné reçoit le code d’envoi, l’attribut concerné, les valeurs observées ou le système où l’anomalie apparaît, le motif validé et le champ à corriger.</p></div></div></section></div>
 </div>
 {% endblock %}
