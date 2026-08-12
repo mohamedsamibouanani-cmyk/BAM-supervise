@@ -52,6 +52,7 @@ class Command(BaseCommand):
             ('CHAMP_SOURCE_MANQUANT', 'Champ source obligatoire manquant', 'ENVOI', 'DONNEE', ''),
             ('CHAMP_OBLIGATOIRE_VIDE', 'Champ obligatoire vide', 'ATTRIBUT', 'DONNEE', ''),
             ('ATTRIBUT_DIFFERENT', 'Valeur d’attribut non synchronisée', 'ATTRIBUT', 'SYNCHRONISATION', ''),
+            ('SERVICE_ABSENT', 'Service absent / non synchronisé', 'SERVICE', 'SYNCHRONISATION', 'ARTICLE'),
             ('SERVICE_INCONNU', 'Service non reconnu', 'SERVICE', 'REGLE', 'ARTICLE'),
             ('MOTIF_INCONNU', 'Motif non identifié', 'ENVOI', 'TECHNIQUE', ''),
         ]
