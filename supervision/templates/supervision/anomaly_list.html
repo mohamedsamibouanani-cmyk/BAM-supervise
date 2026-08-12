@@ -1,56 +1,146 @@
 {% extends 'supervision/base.html' %}
-{% block title %}Anomalies · BAM Supervise{% endblock %}
+{% load static %}
+{% block title %}Registre des anomalies · BAM Supervise{% endblock %}
+{% block head %}<link rel="stylesheet" href="{% static 'supervision/anomaly-register.css' %}">{% endblock %}
 {% block content %}
-<div class="page-header">
-  <div>
-    <div class="page-eyebrow"><i class="bi bi-inboxes"></i> File de traitement</div>
-    <h1 class="page-title">Anomalies</h1>
-    <p class="page-subtitle">Traitez d’abord les dossiers qui attendent votre décision.</p>
+<section class="anomaly-register-head">
+  <div class="anomaly-register-title">
+    <div class="page-eyebrow"><i class="bi bi-shield-check"></i> Supervision opérationnelle</div>
+    <h1 class="page-title">Registre des anomalies</h1>
+    <p class="page-subtitle">Suivi ciblé des écarts de synchronisation entre SMI, SICOM et SIBO.</p>
   </div>
-  <div class="page-actions"><a class="btn btn-primary" href="{% url 'campaign_create' %}"><i class="bi bi-cloud-arrow-up me-1"></i> Nouvelle campagne</a></div>
-</div>
+  <div class="anomaly-register-mode" title="En production, l’alimentation sera automatisée depuis les bases SMI, SICOM et SIBO toutes les 5 minutes.">
+    <span class="anomaly-mode-status"><span class="anomaly-mode-dot"></span> Prototype</span>
+    <span class="anomaly-mode-copy"><strong>Import manuel</strong><small>SMI · SICOM · SIBO</small></span>
+    <a class="btn btn-light btn-sm anomaly-import-btn" href="{% url 'campaign_create' %}"><i class="bi bi-cloud-arrow-up me-1"></i> Importer</a>
+  </div>
+</section>
 
-<nav class="anomaly-views" aria-label="Vues des anomalies">
-  <a class="anomaly-view {% if not vue %}is-active{% endif %}" href="{% url 'anomaly_list' %}"><span>Toutes</span><strong>{{ summary.total }}</strong></a>
-  <a class="anomaly-view is-action {% if vue == 'a_traiter' %}is-active{% endif %}" href="{% url 'anomaly_list' %}?vue=a_traiter"><span>À décider</span><strong>{{ summary.a_traiter }}</strong></a>
-  <a class="anomaly-view is-follow-up {% if vue == 'en_suivi' %}is-active{% endif %}" href="{% url 'anomaly_list' %}?vue=en_suivi"><span>En suivi</span><strong>{{ summary.en_suivi }}</strong></a>
-  <a class="anomaly-view is-resolved {% if vue == 'resolues' %}is-active{% endif %}" href="{% url 'anomaly_list' %}?vue=resolues"><span>Résolues</span><strong>{{ summary.resolues }}</strong></a>
+<nav class="anomaly-views" aria-label="Vues du registre">
+  <a class="anomaly-view is-action {% if vue == 'a_traiter' %}is-active{% endif %}" href="{% url 'anomaly_list' %}?vue=a_traiter">
+    <span class="anomaly-view-label">À traiter</span><small>Décision superviseur</small><strong>{{ summary.a_traiter }}</strong>
+  </a>
+  <a class="anomaly-view is-follow-up {% if vue == 'en_suivi' %}is-active{% endif %}" href="{% url 'anomaly_list' %}?vue=en_suivi">
+    <span class="anomaly-view-label">En suivi</span><small>Correction en cours</small><strong>{{ summary.en_suivi }}</strong>
+  </a>
+  <a class="anomaly-view is-resolved {% if vue == 'resolues' %}is-active{% endif %}" href="{% url 'anomaly_list' %}?vue=resolues">
+    <span class="anomaly-view-label">Résolues</span><small>Dossiers clôturés</small><strong>{{ summary.resolues }}</strong>
+  </a>
+  <a class="anomaly-view is-all {% if not vue %}is-active{% endif %}" href="{% url 'anomaly_list' %}">
+    <span class="anomaly-view-label">Toutes</span><small>Vue complète</small><strong>{{ summary.total }}</strong>
+  </a>
 </nav>
 
 <form class="anomaly-toolbar" method="get">
   {% if vue %}<input type="hidden" name="vue" value="{{ vue }}">{% endif %}
-  <div class="anomaly-search"><i class="bi bi-search"></i><input class="form-control" name="q" value="{{ filters.q|default:'' }}" placeholder="Rechercher un envoi, service ou attribut" aria-label="Rechercher une anomalie"></div>
-  <div class="anomaly-main-filter"><select class="form-select" name="systeme" aria-label="Filtrer par système"><option value="">Tous les systèmes</option>{% for s in systems %}<option value="{{ s.code_systeme }}" {% if filters.systeme == s.code_systeme %}selected{% endif %}>{{ s.code_systeme }}</option>{% endfor %}</select></div>
-  <button class="btn btn-primary" type="submit">Rechercher</button>
+  <div class="anomaly-search">
+    <i class="bi bi-search"></i>
+    <input class="form-control" name="q" value="{{ filters.q|default:'' }}" placeholder="N° d’envoi, service ou attribut" aria-label="Rechercher une anomalie">
+  </div>
+  <div class="anomaly-main-filter">
+    <select class="form-select" name="systeme" aria-label="Filtrer par système observé">
+      <option value="">Tous les systèmes</option>
+      {% for s in systems %}<option value="{{ s.code_systeme }}" {% if filters.systeme == s.code_systeme %}selected{% endif %}>{{ s.code_systeme }}</option>{% endfor %}
+    </select>
+  </div>
+  <button class="btn btn-primary" type="submit"><i class="bi bi-funnel me-1"></i> Filtrer</button>
   <details class="anomaly-more" {% if filters.niveau or filters.statut or filters.type_ecart %}open{% endif %}>
-    <summary><i class="bi bi-sliders"></i> Plus de filtres</summary>
+    <summary><i class="bi bi-sliders"></i> Filtres avancés</summary>
     <div class="anomaly-more-fields">
-      <label><span>Niveau</span><select class="form-select" name="niveau"><option value="">Tous</option><option value="ENVOI" {% if filters.niveau == 'ENVOI' %}selected{% endif %}>Envoi</option><option value="SERVICE" {% if filters.niveau == 'SERVICE' %}selected{% endif %}>Service</option><option value="ATTRIBUT" {% if filters.niveau == 'ATTRIBUT' %}selected{% endif %}>Attribut</option></select></label>
-      <label><span>Type d’écart</span><select class="form-select" name="type_ecart"><option value="">Tous</option><option value="ABSENT" {% if filters.type_ecart == 'ABSENT' %}selected{% endif %}>Absent</option><option value="DIFFERENT" {% if filters.type_ecart == 'DIFFERENT' %}selected{% endif %}>Différent</option></select></label>
-      <label><span>Statut précis</span><select class="form-select" name="statut"><option value="">Tous</option><option value="DETECTEE" {% if filters.statut == 'DETECTEE' %}selected{% endif %}>Détectée</option><option value="ANALYSEE" {% if filters.statut == 'ANALYSEE' %}selected{% endif %}>Analysée</option><option value="VALIDEE" {% if filters.statut == 'VALIDEE' %}selected{% endif %}>Validée</option><option value="NOTIFIEE" {% if filters.statut == 'NOTIFIEE' %}selected{% endif %}>Notifiée</option><option value="PERSISTANTE" {% if filters.statut == 'PERSISTANTE' %}selected{% endif %}>Persistante</option><option value="RESOLUE" {% if filters.statut == 'RESOLUE' %}selected{% endif %}>Résolue</option></select></label>
+      <label>
+        <span>Niveau</span>
+        <select class="form-select" name="niveau">
+          <option value="">Tous</option>
+          <option value="ENVOI" {% if filters.niveau == 'ENVOI' %}selected{% endif %}>Envoi</option>
+          <option value="SERVICE" {% if filters.niveau == 'SERVICE' %}selected{% endif %}>Service</option>
+          <option value="ATTRIBUT" {% if filters.niveau == 'ATTRIBUT' %}selected{% endif %}>Attribut</option>
+        </select>
+      </label>
+      <label>
+        <span>Type d’écart</span>
+        <select class="form-select" name="type_ecart">
+          <option value="">Tous</option>
+          <option value="ABSENT" {% if filters.type_ecart == 'ABSENT' %}selected{% endif %}>Absent</option>
+          <option value="DIFFERENT" {% if filters.type_ecart == 'DIFFERENT' %}selected{% endif %}>Différent</option>
+        </select>
+      </label>
+      <label>
+        <span>Statut métier</span>
+        <select class="form-select" name="statut">
+          <option value="">Tous</option>
+          <option value="ANALYSEE" {% if filters.statut == 'ANALYSEE' %}selected{% endif %}>Analysée</option>
+          <option value="VALIDEE" {% if filters.statut == 'VALIDEE' %}selected{% endif %}>Validée</option>
+          <option value="NOTIFIEE" {% if filters.statut == 'NOTIFIEE' %}selected{% endif %}>Notifiée</option>
+          <option value="PERSISTANTE" {% if filters.statut == 'PERSISTANTE' %}selected{% endif %}>Persistante</option>
+          <option value="RESOLUE" {% if filters.statut == 'RESOLUE' %}selected{% endif %}>Résolue</option>
+        </select>
+      </label>
     </div>
   </details>
-  {% if filters.q or filters.niveau or filters.type_ecart or filters.statut or filters.systeme %}<a class="anomaly-reset" href="{% url 'anomaly_list' %}{% if vue %}?vue={{ vue }}{% endif %}"><i class="bi bi-x-lg"></i> Réinitialiser</a>{% endif %}
+  {% if filters.q or filters.niveau or filters.type_ecart or filters.statut or filters.systeme %}
+    <a class="anomaly-reset" href="{% url 'anomaly_list' %}{% if vue %}?vue={{ vue }}{% endif %}"><i class="bi bi-x-lg"></i> Réinitialiser les filtres</a>
+  {% endif %}
 </form>
 
 <section class="panel anomaly-panel">
-  <div class="panel-header"><div><h2 class="panel-title">{{ filtered_total }} dossier{{ filtered_total|pluralize }} affiché{{ filtered_total|pluralize }}</h2><p class="panel-subtitle">Les décisions en attente apparaissent en premier, des plus anciennes aux plus récentes.</p></div></div>
+  <div class="panel-header">
+    <div>
+      <h2 class="panel-title">{{ filtered_total }} anomalie{{ filtered_total|pluralize }} affichée{{ filtered_total|pluralize }}</h2>
+      <p class="panel-subtitle">Les dossiers nécessitant une décision sont présentés en priorité.</p>
+    </div>
+  </div>
+
   {% if anomalies %}
-  <div class="table-wrap"><table class="table anomaly-table">
-    <thead><tr><th>Dossier</th><th>Écart constaté</th><th>Localisation</th><th>État</th><th>Détectée</th><th></th></tr></thead>
-    <tbody>
-    {% for a in anomalies %}
-      <tr class="anomaly-row {% if a.statut == 'DETECTEE' or a.statut == 'ANALYSEE' %}needs-action{% elif a.statut == 'RESOLUE' %}is-resolved{% endif %}">
-        <td data-label="Dossier"><a class="anomaly-code" href="{% url 'anomaly_detail' a.pk %}">{{ a.code_envoi }}</a><small>Dossier #{{ a.pk }} · campagne #{{ a.campagne_id }}</small></td>
-        <td data-label="Écart"><div class="anomaly-gap"><span class="level-badge level-{{ a.niveau }}">{{ a.get_niveau_display }}</span><strong>{{ a.get_type_ecart_display }}</strong></div><small>{% if a.niveau == 'SERVICE' %}Service {{ a.code_service|default:'non renseigné' }}{% elif a.niveau == 'ATTRIBUT' %}Attribut {{ a.attribut.code_attribut|default:'non renseigné' }}{% else %}Envoi complet{% endif %}</small></td>
-        <td data-label="Localisation">{% if a.systeme_ecart %}<span class="system-badge">{{ a.systeme_ecart.code_systeme }}</span>{% else %}<span class="anomaly-muted">Plusieurs systèmes</span>{% endif %}</td>
-        <td data-label="État"><span class="status-badge status-{{ a.statut }}">{{ a.get_statut_display }}</span>{% if a.statut == 'DETECTEE' or a.statut == 'ANALYSEE' %}<small class="anomaly-attention">Décision requise</small>{% elif a.statut == 'PERSISTANTE' %}<small class="anomaly-attention">Toujours présente</small>{% endif %}</td>
-        <td data-label="Détectée"><time datetime="{{ a.detectee_le|date:'c' }}">{{ a.detectee_le|date:'d/m/Y' }}</time><small>{{ a.detectee_le|date:'H:i' }}</small></td>
-        <td class="anomaly-action" data-label="Action"><a class="btn {% if a.statut == 'DETECTEE' or a.statut == 'ANALYSEE' %}btn-primary{% else %}btn-light{% endif %} btn-sm" href="{% url 'anomaly_detail' a.pk %}">{% if a.statut == 'DETECTEE' or a.statut == 'ANALYSEE' %}Décider{% else %}Consulter{% endif %}<i class="bi bi-arrow-right ms-1"></i></a></td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table></div>
-  {% else %}<div class="empty-state"><div class="empty-icon"><i class="bi bi-check2-circle"></i></div><h3>Aucun dossier dans cette vue</h3><p>Modifiez les filtres ou lancez une nouvelle campagne.</p></div>{% endif %}
+  <div class="table-wrap">
+    <table class="table anomaly-table">
+      <thead>
+        <tr><th>Envoi</th><th>Anomalie</th><th>Système observé</th><th>Suivi</th><th>Détection</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for a in anomalies %}
+        <tr class="anomaly-row {% if a.statut == 'ANALYSEE' %}needs-action{% elif a.statut == 'VALIDEE' or a.statut == 'NOTIFIEE' %}is-follow-up{% elif a.statut == 'PERSISTANTE' %}is-persistent{% elif a.statut == 'RESOLUE' %}is-resolved{% elif a.statut == 'DETECTEE' %}is-technical{% endif %}">
+          <td data-label="Envoi">
+            <a class="anomaly-code" href="{% url 'anomaly_detail' a.pk %}">{{ a.code_envoi }}</a>
+            <small class="anomaly-record-id">Dossier #{{ a.pk }}</small>
+          </td>
+          <td data-label="Anomalie">
+            <div class="anomaly-gap"><span class="level-badge level-{{ a.niveau }}">{{ a.get_niveau_display }}</span><strong>{{ a.get_type_ecart_display }}</strong></div>
+            <small>{% if a.niveau == 'SERVICE' %}Service {{ a.code_service|default:'non renseigné' }}{% elif a.niveau == 'ATTRIBUT' %}Attribut {{ a.attribut.code_attribut|default:'non renseigné' }}{% else %}Envoi complet{% endif %}</small>
+          </td>
+          <td data-label="Système observé">
+            {% if a.systeme_ecart %}<span class="system-badge">{{ a.systeme_ecart.code_systeme }}</span>{% else %}<span class="anomaly-muted">Plusieurs systèmes</span>{% endif %}
+          </td>
+          <td data-label="Suivi">
+            {% if a.statut == 'DETECTEE' %}
+              <span class="status-badge status-ANALYSEE">Analyse en cours</span><small class="anomaly-technical">État technique transitoire</small>
+            {% else %}
+              <span class="status-badge status-{{ a.statut }}">{{ a.get_statut_display }}</span>
+              {% if a.statut == 'ANALYSEE' %}<small class="anomaly-attention">Décision requise</small>
+              {% elif a.statut == 'VALIDEE' %}<small class="anomaly-follow-up">Décision enregistrée</small>
+              {% elif a.statut == 'NOTIFIEE' %}<small class="anomaly-follow-up">Correction demandée</small>
+              {% elif a.statut == 'PERSISTANTE' %}<small class="anomaly-persistent">Correction à relancer</small>
+              {% elif a.statut == 'RESOLUE' %}<small class="anomaly-resolved">Clôturée</small>{% endif %}
+            {% endif %}
+          </td>
+          <td data-label="Détection">
+            <time datetime="{{ a.detectee_le|date:'c' }}">{{ a.detectee_le|date:'d/m/Y' }}</time><small>{{ a.detectee_le|date:'H:i' }}</small>
+          </td>
+          <td class="anomaly-action" data-label="Action">
+            <a class="btn {% if a.statut == 'ANALYSEE' %}btn-primary{% else %}btn-light{% endif %} btn-sm" href="{% url 'anomaly_detail' a.pk %}">{% if a.statut == 'ANALYSEE' %}Traiter{% else %}Voir{% endif %}<i class="bi bi-arrow-right ms-1"></i></a>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <div class="empty-state">
+      <div class="empty-icon"><i class="bi bi-check2-circle"></i></div>
+      {% if vue == 'a_traiter' %}<h3>Aucune anomalie à traiter</h3><p>Aucune décision superviseur n’est actuellement en attente.</p>
+      {% elif vue == 'en_suivi' %}<h3>Aucune anomalie en suivi</h3><p>Aucune correction n’est actuellement en attente de recontrôle.</p>
+      {% elif vue == 'resolues' %}<h3>Aucune anomalie résolue</h3><p>Les anomalies clôturées apparaîtront ici après recontrôle.</p>
+      {% else %}<h3>Registre vide</h3><p>Importez les données du prototype pour lancer une analyse.</p>{% endif %}
+    </div>
+  {% endif %}
 </section>
 {% endblock %}
