@@ -5,7 +5,7 @@
 {% block content %}
 <div class="validation-shell">
   <header class="validation-page-head">
-    <a class="validation-back" href="{% url 'anomaly_detail' anomaly.pk %}"><i class="bi bi-arrow-left"></i> Retour au dossier</a>
+    <a class="validation-back" href="{% url 'anomaly_detail' anomaly.pk %}"><i class="bi bi-arrow-left" aria-hidden="true"></i> Retour au dossier</a>
     <div class="validation-head-row">
       <div>
         <div class="validation-eyebrow">Dossier #{{ anomaly.pk }}</div>
@@ -20,18 +20,18 @@
     </div>
   </header>
 
-  <section class="validation-card">
+  <section class="validation-card" aria-labelledby="validation-diagnostic-title">
     <form method="post" id="validationForm">{% csrf_token %}
       {{ form.prediction }}
       {{ form.multi_cause_mode }}
-      {% if form.non_field_errors %}<div class="alert alert-danger validation-error">{{ form.non_field_errors }}</div>{% endif %}
+      {% if form.non_field_errors %}<div class="alert alert-danger validation-error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
 
       <div class="validation-main-grid">
-        <section class="validation-panel validation-causes-panel" id="causesPanel">
+        <section class="validation-panel validation-causes-panel" id="causesPanel" aria-labelledby="validation-diagnostic-title">
           <div class="validation-panel-head">
             <div>
               <span class="validation-kicker">Diagnostic</span>
-              <h2>Causes détectées</h2>
+              <h2 id="validation-diagnostic-title">Causes détectées</h2>
               <p>Gardez uniquement les causes que vous confirmez.</p>
             </div>
             <div class="validation-panel-tools">
@@ -39,16 +39,19 @@
                 <button class="validation-tool-link" type="button" id="selectAllCauses">Tout sélectionner</button>
                 <button class="validation-tool-link is-muted" type="button" id="clearCauses">Effacer</button>
               {% endif %}
-              {% if anomaly.predictions.count %}<span class="validation-count-badge">{{ anomaly.predictions.count }}</span>{% endif %}
+              {% if anomaly.predictions.count %}<span class="validation-count-badge" aria-label="{{ anomaly.predictions.count }} causes proposées">{{ anomaly.predictions.count }}</span>{% endif %}
             </div>
           </div>
 
-          <div class="validation-cause-options">
-            {{ form.predictions }}
-          </div>
-          {% if form.predictions.errors %}<div class="text-danger small mt-2">{{ form.predictions.errors }}</div>{% endif %}
+          <fieldset class="validation-choice-fieldset">
+            <legend class="visually-hidden">Causes à confirmer</legend>
+            <div class="validation-cause-options">
+              {{ form.predictions }}
+            </div>
+          </fieldset>
+          {% if form.predictions.errors %}<div class="text-danger small mt-2" role="alert">{{ form.predictions.errors }}</div>{% endif %}
 
-          <div class="validation-selection-bar" id="selectionSummary" hidden aria-live="polite">
+          <div class="validation-selection-bar" id="selectionSummary" hidden aria-live="polite" aria-atomic="true">
             <strong id="selectedCountText">Sélection en cours</strong>
             <div class="validation-selection-targets">
               <span>Systèmes concernés</span>
@@ -57,22 +60,25 @@
           </div>
         </section>
 
-        <section class="validation-panel validation-decision-panel">
+        <section class="validation-panel validation-decision-panel" aria-labelledby="validation-decision-title">
           <div class="validation-panel-head">
             <div>
               <span class="validation-kicker">Action</span>
-              <h2>Décision</h2>
+              <h2 id="validation-decision-title">Décision</h2>
               <p>Choisissez simplement la suite à donner.</p>
             </div>
           </div>
 
-          <div class="validation-decision-options">{{ form.decision }}</div>
-          {% if form.decision.errors %}<div class="text-danger small mt-2">{{ form.decision.errors }}</div>{% endif %}
+          <fieldset class="validation-choice-fieldset">
+            <legend class="visually-hidden">Décision du superviseur</legend>
+            <div class="validation-decision-options">{{ form.decision }}</div>
+          </fieldset>
+          {% if form.decision.errors %}<div class="text-danger small mt-2" role="alert">{{ form.decision.errors }}</div>{% endif %}
           <p class="validation-decision-help" id="decisionHelp">Les causes sélectionnées seront validées ensemble.</p>
         </section>
       </div>
 
-      <section class="validation-adjustment" id="adjustmentPanel" hidden>
+      <section class="validation-adjustment" id="adjustmentPanel" hidden aria-labelledby="adjustmentTitle">
         <div class="validation-adjustment-head">
           <div>
             <span class="validation-kicker">Précision</span>
@@ -85,37 +91,38 @@
           <div class="validation-system-field">
             <label class="form-label" for="{{ form.systeme_a_corriger_final.id_for_label }}">Système responsable</label>
             {{ form.systeme_a_corriger_final }}
-            {% if form.systeme_a_corriger_final.errors %}<div class="text-danger small mt-1">{{ form.systeme_a_corriger_final.errors }}</div>{% endif %}
+            {% if form.systeme_a_corriger_final.errors %}<div class="text-danger small mt-1" role="alert">{{ form.systeme_a_corriger_final.errors }}</div>{% endif %}
           </div>
           <div class="validation-motif-field">
             <label class="form-label" for="{{ form.motif_final.id_for_label }}">Cause retenue</label>
             {{ form.motif_final }}
-            {% if form.motif_final.errors %}<div class="text-danger small mt-1">{{ form.motif_final.errors }}</div>{% endif %}
+            {% if form.motif_final.errors %}<div class="text-danger small mt-1" role="alert">{{ form.motif_final.errors }}</div>{% endif %}
           </div>
           <div class="validation-new-reason">
             <div class="validation-or"><span>ou</span></div>
             <label class="form-label" for="{{ form.nouveau_motif.id_for_label }}">Nouvelle cause</label>
             {{ form.nouveau_motif }}
-            {% if form.nouveau_motif.errors %}<div class="text-danger small mt-1">{{ form.nouveau_motif.errors }}</div>{% endif %}
+            {% if form.nouveau_motif.errors %}<div class="text-danger small mt-1" role="alert">{{ form.nouveau_motif.errors }}</div>{% endif %}
             <small>Une cause confirmée pourra être réutilisée pour des dossiers similaires.</small>
           </div>
         </div>
       </section>
 
       <details class="validation-comment" {% if form.commentaire.errors or form.commentaire.value %}open{% endif %}>
-        <summary><span><i class="bi bi-chat-left-text"></i> Ajouter une note</span><small>Facultatif</small></summary>
+        <summary><span><i class="bi bi-chat-left-text" aria-hidden="true"></i> Ajouter une note</span><small>Facultatif</small></summary>
         <div class="validation-comment-body">
+          <label class="visually-hidden" for="{{ form.commentaire.id_for_label }}">Note facultative</label>
           {{ form.commentaire }}
-          {% if form.commentaire.errors %}<div class="text-danger small mt-1">{{ form.commentaire.errors }}</div>{% endif %}
+          {% if form.commentaire.errors %}<div class="text-danger small mt-1" role="alert">{{ form.commentaire.errors }}</div>{% endif %}
         </div>
       </details>
 
       <footer class="validation-actions">
-        <p id="footerSummary"><i class="bi bi-envelope-check"></i><span>La validation notifiera les systèmes concernés.</span></p>
+        <p id="footerSummary" aria-live="polite"><i class="bi bi-envelope-check" aria-hidden="true"></i><span>La validation notifiera les systèmes concernés.</span></p>
         <div>
           <a class="btn btn-light" href="{% url 'anomaly_detail' anomaly.pk %}">Annuler</a>
           <button class="btn btn-primary" type="submit" id="submitDecision">
-            <i class="bi bi-check2-square me-1"></i><span id="submitDecisionLabel">Valider et notifier</span>
+            <i class="bi bi-check2-square me-1" aria-hidden="true"></i><span id="submitDecisionLabel">Valider et notifier</span>
           </button>
         </div>
       </footer>
@@ -137,181 +144,4 @@
 </div>
 {% endblock %}
 
-{% block scripts %}
-<script>
-(function () {
-  function initValidationPage() {
-    const checkboxes = Array.from(document.querySelectorAll('input[name="predictions"]'));
-    const legacyPrediction = document.getElementById('{{ form.prediction.id_for_label }}');
-    const motifSelect = document.getElementById('{{ form.motif_final.id_for_label }}');
-    const systemSelect = document.getElementById('{{ form.systeme_a_corriger_final.id_for_label }}');
-    const decisionInputs = Array.from(document.querySelectorAll('input[name="decision"]'));
-    const causesPanel = document.getElementById('causesPanel');
-    const selectAllButton = document.getElementById('selectAllCauses');
-    const clearButton = document.getElementById('clearCauses');
-    const adjustmentPanel = document.getElementById('adjustmentPanel');
-    const motifField = adjustmentPanel ? adjustmentPanel.querySelector('.validation-motif-field') : null;
-    const newReason = adjustmentPanel ? adjustmentPanel.querySelector('.validation-new-reason') : null;
-    const decisionHelp = document.getElementById('decisionHelp');
-    const selectionSummary = document.getElementById('selectionSummary');
-    const countText = document.getElementById('selectedCountText');
-    const targetsOutput = document.getElementById('selectedTargets');
-    const footerSummary = document.getElementById('footerSummary');
-    const adjustmentTitle = document.getElementById('adjustmentTitle');
-    const adjustmentHint = document.getElementById('adjustmentHint');
-    const submitButton = document.getElementById('submitDecision');
-    const submitLabel = document.getElementById('submitDecisionLabel');
-
-    if (!adjustmentPanel || !selectionSummary || !countText || !targetsOutput) return;
-
-    const metadata = {};
-    document.querySelectorAll('#predictionMetadata [data-prediction-id]').forEach(function (node) {
-      metadata[node.dataset.predictionId] = {
-        motifId: node.dataset.motifId,
-        systemId: node.dataset.systemId,
-        targets: (node.dataset.targets || '').split(',').map(function (value) {
-          return value.trim();
-        }).filter(Boolean)
-      };
-    });
-
-    function selectedDecision() {
-      const checked = document.querySelector('input[name="decision"]:checked');
-      return checked ? checked.value : 'ACCEPTE';
-    }
-
-    function selectedPredictions() {
-      return checkboxes.filter(function (input) { return input.checked; });
-    }
-
-    function selectedTargets(selected) {
-      const targets = [];
-      selected.forEach(function (input) {
-        const item = metadata[input.value];
-        if (!item) return;
-        item.targets.forEach(function (code) {
-          if (!targets.includes(code)) targets.push(code);
-        });
-      });
-      return targets;
-    }
-
-    function renderTargetList(targets) {
-      targetsOutput.replaceChildren();
-      if (!targets.length) {
-        const empty = document.createElement('em');
-        empty.textContent = 'À déterminer';
-        targetsOutput.appendChild(empty);
-        return;
-      }
-      targets.forEach(function (code) {
-        const tag = document.createElement('span');
-        tag.className = 'validation-target';
-        tag.textContent = code;
-        targetsOutput.appendChild(tag);
-      });
-    }
-
-    function renderSelection() {
-      const selected = selectedPredictions();
-      const targets = selectedTargets(selected);
-      const count = selected.length;
-      countText.textContent = count + ' cause' + (count > 1 ? 's' : '') + ' sélectionnée' + (count > 1 ? 's' : '');
-      renderTargetList(targets);
-      selectionSummary.hidden = selectedDecision() !== 'ACCEPTE';
-
-      const primary = count ? metadata[selected[0].value] : null;
-      if (legacyPrediction) legacyPrediction.value = count ? selected[0].value : '';
-      if (selectedDecision() === 'ACCEPTE' && primary) {
-        if (motifSelect && primary.motifId) motifSelect.value = primary.motifId;
-        if (systemSelect && primary.systemId) systemSelect.value = primary.systemId;
-      }
-
-      if (selectedDecision() === 'ACCEPTE' && submitButton) {
-        submitButton.disabled = count === 0;
-      }
-
-      if (footerSummary && selectedDecision() === 'ACCEPTE') {
-        const copy = footerSummary.querySelector('span');
-        if (copy) {
-          copy.textContent = count
-            ? count + ' cause' + (count > 1 ? 's' : '') + (targets.length ? ' · ' + targets.join(', ') : '')
-            : 'Sélectionnez au moins une cause.';
-        }
-      }
-    }
-
-    function setCauseSelection(enabled) {
-      checkboxes.forEach(function (input) {
-        input.disabled = !enabled;
-      });
-      if (selectAllButton) selectAllButton.disabled = !enabled;
-      if (clearButton) clearButton.disabled = !enabled;
-      if (causesPanel) causesPanel.classList.toggle('is-inactive', !enabled);
-    }
-
-    function renderDecision() {
-      const decision = selectedDecision();
-      const isAccept = decision === 'ACCEPTE';
-      const isModify = decision === 'MODIFIE';
-      const isUnknown = decision === 'INCONNU';
-
-      setCauseSelection(isAccept);
-      adjustmentPanel.hidden = isAccept;
-      if (motifField) motifField.hidden = !isModify;
-      if (newReason) newReason.hidden = !isModify;
-
-      if (isAccept) {
-        decisionHelp.textContent = 'Confirmez simplement les causes cochées.';
-        submitLabel.textContent = 'Valider et notifier';
-      } else if (isModify) {
-        decisionHelp.textContent = 'Le diagnostic proposé sera remplacé par votre choix.';
-        adjustmentTitle.textContent = 'Ajuster le diagnostic';
-        adjustmentHint.textContent = 'Choisissez le système responsable et la cause retenue.';
-        submitLabel.textContent = 'Enregistrer et notifier';
-        submitButton.disabled = false;
-        const copy = footerSummary.querySelector('span');
-        if (copy) copy.textContent = 'Le diagnostic ajusté sera enregistré avant notification.';
-      } else if (isUnknown) {
-        decisionHelp.textContent = 'La cause doit encore être clarifiée.';
-        adjustmentTitle.textContent = 'Poursuivre l’investigation';
-        adjustmentHint.textContent = 'Choisissez le système qui doit approfondir l’analyse.';
-        submitLabel.textContent = 'Envoyer pour investigation';
-        submitButton.disabled = false;
-        const copy = footerSummary.querySelector('span');
-        if (copy) copy.textContent = 'Le système choisi sera sollicité pour investigation.';
-      }
-
-      renderSelection();
-    }
-
-    checkboxes.forEach(function (input) {
-      input.addEventListener('change', renderSelection);
-    });
-    decisionInputs.forEach(function (input) {
-      input.addEventListener('change', renderDecision);
-    });
-    if (selectAllButton) {
-      selectAllButton.addEventListener('click', function () {
-        checkboxes.forEach(function (input) { input.checked = true; });
-        renderSelection();
-      });
-    }
-    if (clearButton) {
-      clearButton.addEventListener('click', function () {
-        checkboxes.forEach(function (input) { input.checked = false; });
-        renderSelection();
-      });
-    }
-
-    renderDecision();
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initValidationPage, {once: true});
-  } else {
-    initValidationPage();
-  }
-})();
-</script>
-{% endblock %}
+{% block scripts %}<script src="{% static 'supervision/validation-form.js' %}"></script>{% endblock %}
