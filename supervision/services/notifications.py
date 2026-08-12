@@ -101,6 +101,7 @@ def build_email(validation, group, system):
         f'Attribut : {anomaly.attribut.code_attribut if anomaly.attribut_id else "-"}\n'
         f'Motif validé : {validation.motif_final.libelle}\n'
         f'Champ source à vérifier : {diagnostic_field}\n'
+        f'Système à corriger : {system.code_systeme}\n'
         f'Système responsable de la correction : {system.code_systeme}\n'
         f'Commentaire : {validation.commentaire or "-"}\n\n'
         f'Merci de corriger la donnée dans votre système. '
