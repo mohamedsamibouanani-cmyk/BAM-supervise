@@ -1,5 +1,5 @@
 from django.urls import path
-from . import views, views_anomaly, views_governance
+from . import views, views_anomaly, views_governance, views_notifications
 
 urlpatterns = [
     path('', views.dashboard, name='dashboard'),
@@ -8,7 +8,7 @@ urlpatterns = [
     path('anomalies/', views.anomaly_list, name='anomaly_list'),
     path('anomalies/<int:pk>/', views_anomaly.anomaly_detail, name='anomaly_detail'),
     path('anomalies/<int:pk>/valider/', views_anomaly.anomaly_validate, name='anomaly_validate'),
-    path('notifications/', views.notification_list, name='notification_list'),
+    path('notifications/', views_notifications.notification_list, name='notification_list'),
     path('notifications/<int:notification_id>/relancer/', views_governance.notification_retry, name='notification_retry'),
     path('groupes/', views.group_list, name='group_list'),
     path('groupes/<int:group_id>/contacts/ajouter/', views.contact_add, name='contact_add'),
