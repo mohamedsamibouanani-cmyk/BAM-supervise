@@ -109,6 +109,14 @@ def _diagnostic_evidence(rule, anomaly):
                     'champ': rule.attribut.code_attribut,
                     'constat': 'Format source non conforme',
                 })
+    elif rule.type_controle == 'VIDE':
+        for detail in anomaly.details.select_related('systeme').all():
+            if not detail.objet_present:
+                evidence.append({
+                    'systeme': detail.systeme.code_systeme,
+                    'champ': anomaly.code_service or anomaly.niveau,
+                    'constat': f'{anomaly.get_niveau_display()} absent dans ce système',
+                })
     elif rule.type_controle == 'DIFFERENCE':
         for detail in anomaly.details.select_related('systeme').all():
             evidence.append({
@@ -242,6 +250,76 @@ def _append_learned_predictions(anomaly, rank, used_motif_ids):
     return rank
 
 
+def _service_absence_fallback_rule():
+    """Inactive structural rule used only after source-side rules found no concrete cause."""
+    motif = Motif.objects.filter(code_motif='SERVICE_ABSENT', actif=True).first()
+    if not motif:
+        return None
+    rule, _ = RegleMetier.objects.get_or_create(
+        code_regle='FALLBACK_SERVICE_ABSENT',
+        defaults={
+            'motif_suggere': motif,
+            'niveau_anomalie': 'SERVICE',
+            'type_controle': 'VIDE',
+            'expression_regle': {'type_ecart': 'ABSENT'},
+            'seuil_confiance': Decimal('0.9800'),
+            'priorite': 9900,
+            'actif': False,
+        },
+    )
+    return rule
+
+
+def _append_service_absence_prediction(anomaly, rank):
+    """Diagnose a missing service only when no stronger source-side cause was found."""
+    if rank != 1 or anomaly.niveau != anomaly.Niveau.SERVICE or anomaly.type_ecart != anomaly.TypeEcart.ABSENT:
+        return rank
+
+    rule = _service_absence_fallback_rule()
+    if not rule or not _rule_matches(rule, anomaly):
+        return rank
+
+    evidence = _diagnostic_evidence(rule, anomaly)
+    target_codes = _evidence_system_codes(evidence)
+    if not target_codes:
+        return rank
+
+    present_codes = list(
+        anomaly.details.filter(objet_present=True)
+        .select_related('systeme')
+        .order_by('systeme__ordre_comparaison')
+        .values_list('systeme__code_systeme', flat=True)
+    )
+    predicted_system = Systeme.objects.filter(code_systeme=target_codes[0], actif=True).first()
+    if predicted_system is None:
+        return rank
+
+    service_label = anomaly.code_service or 'concerné'
+    present_text = ', '.join(present_codes) if present_codes else 'les autres systèmes'
+    missing_text = ', '.join(target_codes)
+    PredictionMotif.objects.create(
+        anomalie=anomaly,
+        source_prediction=PredictionMotif.Source.REGLE,
+        regle=rule,
+        motif=rule.motif_suggere,
+        systeme_a_corriger_predit=predicted_system,
+        rang=rank,
+        score_confiance=rule.seuil_confiance,
+        explication={
+            'regle': rule.code_regle,
+            'type_controle': rule.type_controle,
+            'indices': evidence,
+            'message': (
+                f'Le service {service_label} est présent dans {present_text} '
+                f'et absent dans {missing_text}. Aucun autre défaut source prioritaire n’a été identifié.'
+            ),
+            'systemes_a_corriger': target_codes,
+            'role_diagnostic': 'CAUSE_ACTIVE',
+        },
+    )
+    return rank + 1
+
+
 def analyze_anomaly(anomaly):
     PredictionMotif.objects.filter(anomalie=anomaly).delete()
     rank = 1
@@ -283,6 +361,12 @@ def analyze_anomaly(anomaly):
             )
             used_motif_ids.add(rule.motif_suggere_id)
             rank += 1
+
+    # Si aucun défaut source plus précis n'explique l'écart, un service réellement
+    # présent dans les autres systèmes et absent dans un système devient lui-même
+    # une cause de synchronisation déterministe.
+    if rank == 1:
+        rank = _append_service_absence_prediction(anomaly, rank)
 
     # L'apprentissage/ML reste un mécanisme de suggestion quand aucune règle
     # explicite n'a identifié de cause concrète dans les données.
