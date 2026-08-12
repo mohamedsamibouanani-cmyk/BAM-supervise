@@ -32,9 +32,15 @@
             <div>
               <span class="validation-kicker">Diagnostic</span>
               <h2>Causes détectées</h2>
-              <p>Sélectionnez uniquement les causes que vous confirmez.</p>
+              <p>Gardez uniquement les causes que vous confirmez.</p>
             </div>
-            {% if anomaly.predictions.count %}<span class="validation-count-badge">{{ anomaly.predictions.count }}</span>{% endif %}
+            <div class="validation-panel-tools">
+              {% if anomaly.predictions.count > 1 %}
+                <button class="validation-tool-link" type="button" id="selectAllCauses">Tout sélectionner</button>
+                <button class="validation-tool-link is-muted" type="button" id="clearCauses">Effacer</button>
+              {% endif %}
+              {% if anomaly.predictions.count %}<span class="validation-count-badge">{{ anomaly.predictions.count }}</span>{% endif %}
+            </div>
           </div>
 
           <div class="validation-cause-options">
@@ -56,7 +62,7 @@
             <div>
               <span class="validation-kicker">Action</span>
               <h2>Décision</h2>
-              <p>Choisissez la suite à donner au dossier.</p>
+              <p>Choisissez simplement la suite à donner.</p>
             </div>
           </div>
 
@@ -140,6 +146,9 @@
     const motifSelect = document.getElementById('{{ form.motif_final.id_for_label }}');
     const systemSelect = document.getElementById('{{ form.systeme_a_corriger_final.id_for_label }}');
     const decisionInputs = Array.from(document.querySelectorAll('input[name="decision"]'));
+    const causesPanel = document.getElementById('causesPanel');
+    const selectAllButton = document.getElementById('selectAllCauses');
+    const clearButton = document.getElementById('clearCauses');
     const adjustmentPanel = document.getElementById('adjustmentPanel');
     const motifField = adjustmentPanel ? adjustmentPanel.querySelector('.validation-motif-field') : null;
     const newReason = adjustmentPanel ? adjustmentPanel.querySelector('.validation-new-reason') : null;
@@ -209,7 +218,7 @@
       const count = selected.length;
       countText.textContent = count + ' cause' + (count > 1 ? 's' : '') + ' sélectionnée' + (count > 1 ? 's' : '');
       renderTargetList(targets);
-      selectionSummary.hidden = false;
+      selectionSummary.hidden = selectedDecision() !== 'ACCEPTE';
 
       const primary = count ? metadata[selected[0].value] : null;
       if (legacyPrediction) legacyPrediction.value = count ? selected[0].value : '';
@@ -232,21 +241,31 @@
       }
     }
 
+    function setCauseSelection(enabled) {
+      checkboxes.forEach(function (input) {
+        input.disabled = !enabled;
+      });
+      if (selectAllButton) selectAllButton.disabled = !enabled;
+      if (clearButton) clearButton.disabled = !enabled;
+      if (causesPanel) causesPanel.classList.toggle('is-inactive', !enabled);
+    }
+
     function renderDecision() {
       const decision = selectedDecision();
       const isAccept = decision === 'ACCEPTE';
       const isModify = decision === 'MODIFIE';
       const isUnknown = decision === 'INCONNU';
 
+      setCauseSelection(isAccept);
       adjustmentPanel.hidden = isAccept;
       if (motifField) motifField.hidden = !isModify;
       if (newReason) newReason.hidden = !isModify;
 
       if (isAccept) {
-        decisionHelp.textContent = 'Les causes cochées seront validées ensemble.';
+        decisionHelp.textContent = 'Confirmez simplement les causes cochées.';
         submitLabel.textContent = 'Valider et notifier';
       } else if (isModify) {
-        decisionHelp.textContent = 'Définissez une cause plus juste avant validation.';
+        decisionHelp.textContent = 'Le diagnostic proposé sera remplacé par votre choix.';
         adjustmentTitle.textContent = 'Ajuster le diagnostic';
         adjustmentHint.textContent = 'Choisissez le système responsable et la cause retenue.';
         submitLabel.textContent = 'Enregistrer et notifier';
@@ -254,7 +273,7 @@
         const copy = footerSummary.querySelector('span');
         if (copy) copy.textContent = 'Le diagnostic ajusté sera enregistré avant notification.';
       } else if (isUnknown) {
-        decisionHelp.textContent = 'La cause n’est pas encore suffisamment certaine.';
+        decisionHelp.textContent = 'La cause doit encore être clarifiée.';
         adjustmentTitle.textContent = 'Poursuivre l’investigation';
         adjustmentHint.textContent = 'Choisissez le système qui doit approfondir l’analyse.';
         submitLabel.textContent = 'Envoyer pour investigation';
@@ -272,6 +291,18 @@
     decisionInputs.forEach(function (input) {
       input.addEventListener('change', renderDecision);
     });
+    if (selectAllButton) {
+      selectAllButton.addEventListener('click', function () {
+        checkboxes.forEach(function (input) { input.checked = true; });
+        renderSelection();
+      });
+    }
+    if (clearButton) {
+      clearButton.addEventListener('click', function () {
+        checkboxes.forEach(function (input) { input.checked = false; });
+        renderSelection();
+      });
+    }
 
     renderDecision();
   }
