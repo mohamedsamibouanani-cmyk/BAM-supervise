@@ -93,15 +93,6 @@
                   <div class="cause-topline compact-cause-topline">
                     <strong>{{ p.motif.libelle }}</strong>
                   </div>
-                  <div class="cause-targets compact-cause-targets">
-                    {% if p.explication.systemes_a_corriger %}
-                      {% for code in p.explication.systemes_a_corriger %}<span class="system-badge">{{ code }}</span>{% endfor %}
-                    {% elif p.systeme_a_corriger_predit %}
-                      <span class="system-badge">{{ p.systeme_a_corriger_predit.code_systeme }}</span>
-                    {% else %}
-                      <span class="system-state-note">À confirmer</span>
-                    {% endif %}
-                  </div>
                 </div>
                 <div class="cause-side compact-cause-side">
                   <span class="cause-score">{% widthratio p.score_confiance 1 100 %}%</span>
