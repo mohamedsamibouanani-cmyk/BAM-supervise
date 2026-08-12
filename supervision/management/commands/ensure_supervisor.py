@@ -2,7 +2,7 @@ import os
 
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
 
 from supervision.models import Superviseur
 
@@ -39,10 +39,14 @@ class Command(BaseCommand):
             return
 
         if password.lower() in _FORBIDDEN_BOOTSTRAP_PASSWORDS:
-            raise CommandError(
-                'DJANGO_SUPERVISEUR_PASSWORD utilise une valeur de démonstration interdite. '
-                'Choisissez un mot de passe fort et privé.'
+            self.stdout.write(
+                self.style.WARNING(
+                    'Aucun superviseur créé : DJANGO_SUPERVISEUR_PASSWORD utilise une '
+                    'valeur de démonstration interdite. Choisissez un mot de passe fort '
+                    'et privé, puis relancez le service web.'
+                )
             )
+            return
 
         candidate = Superviseur(
             username=username,
@@ -52,10 +56,13 @@ class Command(BaseCommand):
         try:
             validate_password(password, user=candidate)
         except ValidationError as exc:
-            raise CommandError(
-                'DJANGO_SUPERVISEUR_PASSWORD ne respecte pas la politique de sécurité : '
-                + ' '.join(exc.messages)
-            ) from exc
+            self.stdout.write(
+                self.style.WARNING(
+                    'Aucun superviseur créé : DJANGO_SUPERVISEUR_PASSWORD ne respecte '
+                    'pas la politique de sécurité : ' + ' '.join(exc.messages)
+                )
+            )
+            return
 
         Superviseur.objects.create_superuser(
             username=username,

@@ -1,10 +1,9 @@
-import os
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from supervision.models import (
     AttributDefinition, GroupeResponsable, Motif, RegleAffectation, RegleMetier,
-    Superviseur, Systeme,
+    Systeme,
 )
 
 
@@ -143,12 +142,5 @@ class Command(BaseCommand):
             group = GroupeResponsable.objects.get(systeme=system, nom_groupe=f'Groupe {system.code_systeme}')
             for motif in motifs.values():
                 RegleAffectation.objects.get_or_create(systeme_a_corriger=system, motif=motif, defaults={'groupe': group})
-
-        username = os.getenv('DJANGO_SUPERVISEUR_USERNAME')
-        password = os.getenv('DJANGO_SUPERVISEUR_PASSWORD')
-        email = os.getenv('DJANGO_SUPERVISEUR_EMAIL', '')
-        if username and password and not Superviseur.objects.exists():
-            Superviseur.objects.create_superuser(username=username, password=password, email=email, nom_complet=username)
-            self.stdout.write(self.style.SUCCESS('Compte superviseur créé depuis les variables d’environnement.'))
 
         self.stdout.write(self.style.SUCCESS('Référentiels BAM initialisés.'))

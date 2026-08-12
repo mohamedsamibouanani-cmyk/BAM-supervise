@@ -158,6 +158,8 @@ DJANGO_SUPERVISEUR_NOM=Superviseur BAM
 ```
 
 Le bootstrap refuse les mots de passe de démonstration connus et applique les validateurs Django.
+Si les identifiants sont absents ou invalides, aucun compte faible n'est créé et le conteneur
+continue de démarrer. Corrigez alors `.env`, puis relancez le service `web` pour créer le compte.
 
 ## Tests
 
