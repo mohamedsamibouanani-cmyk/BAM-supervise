@@ -107,8 +107,9 @@ class ValidationFormUiTests(TestCase):
         response = self.client.get(reverse('anomaly_validate', args=[self.anomaly.pk]))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Valider le diagnostic')
-        self.assertContains(response, 'Diagnostic proposé')
+        self.assertContains(response, 'Valider les corrections')
+        self.assertContains(response, 'Corrections détectées')
+        self.assertContains(response, 'Plusieurs causes peuvent être vraies en même temps')
         self.assertContains(response, 'Décision du superviseur')
         self.assertContains(response, 'Système(s) à corriger')
         self.assertContains(response, 'SMI')
