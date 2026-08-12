@@ -26,9 +26,9 @@ class ValidationFormUiTests(TestCase):
             niveau_applicable='ENVOI',
             categorie='DONNEE',
         )
-        campaign = CampagneSupervision.objects.create(superviseur=self.user)
+        self.campaign = CampagneSupervision.objects.create(superviseur=self.user)
         self.anomaly = Anomalie.objects.create(
-            campagne=campaign,
+            campagne=self.campaign,
             niveau='ENVOI',
             type_ecart='ABSENT',
             code_envoi='E-VALIDATION-UI',
@@ -67,6 +67,41 @@ class ValidationFormUiTests(TestCase):
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.cleaned_data['motif_final'], self.motif_tel)
         self.assertEqual(form.cleaned_data['systeme_a_corriger_final'], self.sicom)
+
+    def test_acceptance_without_prediction_uses_top_ranked_diagnostic(self):
+        form = ValidationMotifForm(self.anomaly, data={
+            'motif_final': self.motif_tel.pk,
+            'systeme_a_corriger_final': self.sicom.pk,
+            'decision': 'ACCEPTE',
+            'commentaire': '',
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data['prediction'], self.prediction_ville)
+        self.assertEqual(form.cleaned_data['motif_final'], self.motif_ville)
+        self.assertEqual(form.cleaned_data['systeme_a_corriger_final'], self.smi)
+
+    def test_legacy_acceptance_without_any_prediction_keeps_explicit_correction(self):
+        legacy_anomaly = Anomalie.objects.create(
+            campagne=self.campaign,
+            niveau='ENVOI',
+            type_ecart='ABSENT',
+            code_envoi='E-LEGACY-VALIDATION',
+            systeme_ecart=self.sibo,
+            empreinte_anomalie='l' * 64,
+            statut=Anomalie.Statut.ANALYSEE,
+        )
+        form = ValidationMotifForm(legacy_anomaly, data={
+            'motif_final': self.motif_ville.pk,
+            'systeme_a_corriger_final': self.smi.pk,
+            'decision': 'ACCEPTE',
+            'commentaire': '',
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertIsNone(form.cleaned_data['prediction'])
+        self.assertEqual(form.cleaned_data['motif_final'], self.motif_ville)
+        self.assertEqual(form.cleaned_data['systeme_a_corriger_final'], self.smi)
 
     def test_validation_page_is_compact_and_exposes_responsible_systems(self):
         response = self.client.get(reverse('anomaly_validate', args=[self.anomaly.pk]))
