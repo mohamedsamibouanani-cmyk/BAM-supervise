@@ -1,0 +1,15 @@
+.validation-correction-options #id_predictions{display:grid;gap:8px;margin:0;padding:0;list-style:none}
+.validation-correction-options #id_predictions>div{min-width:0}
+.validation-correction-options label{display:flex;align-items:center;gap:11px;min-height:50px;margin:0;padding:11px 13px;border:1px solid #dfe6f1;border-radius:11px;background:#fff;color:#42526a;font-size:10.5px;font-weight:750;line-height:1.4;cursor:pointer;transition:border-color .15s ease,background .15s ease,box-shadow .15s ease,transform .15s ease}
+.validation-correction-options label:hover{transform:translateY(-1px);border-color:#aebfe0;background:#fbfcff}
+.validation-correction-options input[type=checkbox]{flex:0 0 auto;width:17px;height:17px;margin:0;accent-color:#244b9b}
+.validation-correction-options label:has(input:checked){border-color:#7e9bd2;background:linear-gradient(90deg,#f2f6ff,#fff);box-shadow:inset 3px 0 0 #244b9b,0 5px 14px rgba(36,75,155,.06);color:#173675}
+.validation-selection-summary{display:grid;grid-template-columns:150px minmax(0,1fr);gap:10px;margin-top:12px;padding:11px 12px;border:1px solid #e1e8f3;border-radius:11px;background:#f8faff}
+.validation-selection-summary>div{min-width:0}
+.validation-selection-summary span{display:block;margin-bottom:4px;color:#8794a8;font-size:8.5px;font-weight:850;letter-spacing:.05em;text-transform:uppercase}
+.validation-selection-summary strong{color:#173675;font-size:17px;font-weight:900}
+.validation-summary-targets{padding-left:12px;border-left:1px solid #dfe6f1}
+.validation-target-list{display:flex;flex-wrap:wrap;gap:5px}
+.validation-target-list em{color:#98a3b3;font-size:9.5px;font-style:normal}
+.validation-target{display:inline-flex!important;align-items:center;min-height:24px;margin:0!important;padding:0 8px;border:1px solid #cbd8f0;border-radius:999px;background:#eef3ff;color:#173675!important;font-size:9px!important;font-weight:850!important;letter-spacing:0!important;text-transform:none!important}
+@media(max-width:767.98px){.validation-selection-summary{grid-template-columns:1fr}.validation-summary-targets{padding-left:0;padding-top:9px;border-left:0;border-top:1px solid #dfe6f1}.validation-correction-options label{align-items:flex-start}}
