@@ -64,10 +64,11 @@ class AnomalyWorkQueueTests(TestCase):
 
         response = self.client.get(reverse('anomaly_list'))
         codes = [anomaly.code_envoi for anomaly in response.context['anomalies']]
+        body = response.content.decode('utf-8')
 
         self.assertEqual(codes, ['OLDEST', 'NEWEST', 'RESOLVED'])
-        self.assertContains(response, 'Examiner', count=1)
-        self.assertContains(response, 'Ouvrir', count=2)
+        self.assertEqual(body.count('>Examiner<i class="bi bi-arrow-right'), 1)
+        self.assertEqual(body.count('>Ouvrir<i class="bi bi-arrow-right'), 2)
 
     def test_detected_state_is_kept_technical_not_offered_as_business_filter(self):
         self._anomaly('TECHNICAL', Anomalie.Statut.DETECTEE)
