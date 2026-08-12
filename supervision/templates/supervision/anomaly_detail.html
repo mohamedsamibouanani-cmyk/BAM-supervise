@@ -23,11 +23,6 @@
         {% elif anomaly.systeme_ecart %} · absent dans <strong>{{ anomaly.systeme_ecart.code_systeme }}</strong>{% endif %}
       </p>
     </div>
-    <div class="anomaly-detail-actions">
-      {% if anomaly.statut != 'RESOLUE' %}
-        <a class="btn btn-primary" href="{% url 'anomaly_validate' anomaly.pk %}"><i class="bi bi-check2-square me-1"></i> {% if final_validations %}Réviser les corrections{% else %}Valider les corrections{% endif %}</a>
-      {% endif %}
-    </div>
   </header>
 
   <div class="anomaly-casebar">
