@@ -86,9 +86,10 @@ def build_email(validation, group, system):
             for detail in anomaly.details.select_related('systeme').order_by('systeme__ordre_comparaison')
         )
     else:
+        observed_system = anomaly.systeme_ecart.code_systeme if anomaly.systeme_ecart_id else '-'
         gap_description = (
-            'Système où l’anomalie est observée : '
-            f'{anomaly.systeme_ecart.code_systeme if anomaly.systeme_ecart_id else "-"}'
+            f'Système où l’élément manque : {observed_system}\n'
+            f'Système où l’anomalie est observée : {observed_system}'
         )
     body = (
         f'Bonjour,\n\n'
