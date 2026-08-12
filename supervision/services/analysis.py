@@ -4,7 +4,7 @@ import joblib
 
 from supervision.models import (
     AttributDefinition, EnvoiSnapshot, ExempleApprentissage, ModeleML, Motif,
-    PredictionMotif, RegleMetier,
+    PredictionMotif, RegleMetier, Systeme,
 )
 
 
@@ -119,6 +119,29 @@ def _diagnostic_evidence(rule, anomaly):
     return evidence
 
 
+def _correction_system_codes(rule, anomaly):
+    """Return every system that contains the detected cause, without hard-coded system names."""
+    if rule.flux_id:
+        return [rule.flux.systeme_source.code_systeme]
+
+    evidence = _diagnostic_evidence(rule, anomaly)
+    issue_markers = (
+        'vide', 'absent', 'non conforme', 'aucun service', 'uniquement des chiffres',
+    )
+    codes = []
+    for item in evidence:
+        constat = str(item.get('constat') or '').lower()
+        code = item.get('systeme')
+        if code and any(marker in constat for marker in issue_markers) and code not in codes:
+            codes.append(code)
+
+    if codes:
+        return codes
+    if anomaly.systeme_ecart_id:
+        return [anomaly.systeme_ecart.code_systeme]
+    return []
+
+
 def _learned_signature(anomaly):
     return {
         'niveau': anomaly.niveau,
@@ -156,6 +179,7 @@ def _append_learned_predictions(anomaly, rank, used_motif_ids):
             explication={
                 'message': 'Motif reconnu à partir d’un dossier similaire validé par le superviseur.',
                 'origine': f'Dossier #{example.validation.anomalie_id}',
+                'systemes_a_corriger': [example.systeme_a_corriger_label.code_systeme],
             },
         )
         seen.add(example.motif_label_id)
@@ -172,13 +196,12 @@ def analyze_anomaly(anomaly):
         if rank > 3:
             break
         if _rule_matches(rule, anomaly):
-            predicted_system = anomaly.systeme_ecart
-            if rule.flux_id:
-                predicted_system = rule.flux.systeme_source
-            elif rule.attribut_id:
-                matching = [system for system, value in _rule_values(rule, anomaly) if value is None or value.est_vide or value.format_source_conforme is False]
-                if len(matching) == 1:
-                    predicted_system = matching[0]
+            target_codes = _correction_system_codes(rule, anomaly)
+            predicted_system = None
+            if target_codes:
+                predicted_system = Systeme.objects.filter(code_systeme=target_codes[0]).first()
+            if predicted_system is None:
+                predicted_system = anomaly.systeme_ecart
             PredictionMotif.objects.create(
                 anomalie=anomaly,
                 source_prediction=PredictionMotif.Source.REGLE,
@@ -192,6 +215,7 @@ def analyze_anomaly(anomaly):
                     'type_controle': rule.type_controle,
                     'attribut_analyse': rule.attribut.code_attribut if rule.attribut_id else None,
                     'indices': _diagnostic_evidence(rule, anomaly),
+                    'systemes_a_corriger': target_codes,
                 },
             )
             used_motif_ids.add(rule.motif_suggere_id)
@@ -202,6 +226,7 @@ def analyze_anomaly(anomaly):
         unknown = Motif.objects.filter(code_motif='MOTIF_INCONNU').first()
         fallback = _fallback_rule()
         if unknown and fallback:
+            target_codes = [anomaly.systeme_ecart.code_systeme] if anomaly.systeme_ecart_id else []
             PredictionMotif.objects.create(
                 anomalie=anomaly,
                 source_prediction=PredictionMotif.Source.REGLE,
@@ -210,7 +235,10 @@ def analyze_anomaly(anomaly):
                 systeme_a_corriger_predit=anomaly.systeme_ecart,
                 rang=1,
                 score_confiance=Decimal('0.1000'),
-                explication={'message': 'Aucune règle ou prédiction ML suffisamment précise.'},
+                explication={
+                    'message': 'Aucune règle ou prédiction ML suffisamment précise.',
+                    'systemes_a_corriger': target_codes,
+                },
             )
     if anomaly.predictions.exists() and anomaly.statut == anomaly.Statut.DETECTEE:
         anomaly.statut = anomaly.Statut.ANALYSEE
@@ -267,6 +295,7 @@ def _append_ml_predictions(anomaly, rank):
             motif = Motif.objects.filter(code_motif=str(code_motif), actif=True).first()
             if not motif:
                 continue
+            target_codes = [anomaly.systeme_ecart.code_systeme] if anomaly.systeme_ecart_id else []
             PredictionMotif.objects.create(
                 anomalie=anomaly,
                 source_prediction=PredictionMotif.Source.ML,
@@ -275,7 +304,7 @@ def _append_ml_predictions(anomaly, rank):
                 systeme_a_corriger_predit=anomaly.systeme_ecart,
                 rang=rank,
                 score_confiance=Decimal(str(round(float(score), 4))),
-                explication={'features': features},
+                explication={'features': features, 'systemes_a_corriger': target_codes},
             )
             rank += 1
         return rank
