@@ -80,6 +80,7 @@ class ValidationMotifForm(forms.Form):
     )
     decision = forms.ChoiceField(
         choices=[('ACCEPTE', 'Accepter'), ('MODIFIE', 'Modifier'), ('INCONNU', 'Motif inconnu')],
+        initial='ACCEPTE',
         widget=forms.RadioSelect,
     )
     commentaire = forms.CharField(
