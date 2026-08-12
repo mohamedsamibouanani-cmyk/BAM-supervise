@@ -58,20 +58,20 @@ class CampaignImportForm(forms.Form):
 
 class ValidationMotifForm(forms.Form):
     prediction = forms.ModelChoiceField(
-        queryset=PredictionMotif.objects.none(), required=False, label='Proposition retenue',
+        queryset=PredictionMotif.objects.none(), required=False, label='Diagnostic proposé',
         widget=forms.Select(attrs={'class': 'form-select'}),
     )
     motif_final = forms.ModelChoiceField(
-        queryset=Motif.objects.filter(actif=True), required=False, label='Motif final',
+        queryset=Motif.objects.filter(actif=True), required=False, label='Motif retenu',
         widget=forms.Select(attrs={'class': 'form-select'}),
     )
     nouveau_motif = forms.CharField(
         required=False,
         max_length=255,
-        label='Nouveau motif',
+        label='Cause réelle',
         widget=forms.TextInput(attrs={
             'class': 'form-control',
-            'placeholder': 'Décrivez la cause si aucune proposition ne convient',
+            'placeholder': 'Décrivez la cause si aucun motif existant ne convient',
         }),
     )
     systeme_a_corriger_final = forms.ModelChoiceField(
@@ -80,10 +80,14 @@ class ValidationMotifForm(forms.Form):
     )
     decision = forms.ChoiceField(
         choices=[('ACCEPTE', 'Accepter'), ('MODIFIE', 'Modifier'), ('INCONNU', 'Motif inconnu')],
-        widget=forms.Select(attrs={'class': 'form-select'}),
+        widget=forms.RadioSelect,
     )
     commentaire = forms.CharField(
-        widget=forms.Textarea(attrs={'rows': 4, 'class': 'form-control', 'placeholder': 'Justification ou précision métier (facultatif)'}),
+        widget=forms.Textarea(attrs={
+            'rows': 3,
+            'class': 'form-control',
+            'placeholder': 'Ajouter une précision métier (facultatif)',
+        }),
         required=False,
     )
 
@@ -99,21 +103,29 @@ class ValidationMotifForm(forms.Form):
         decision = cleaned.get('decision')
         motif = cleaned.get('motif_final')
         nouveau_motif = (cleaned.get('nouveau_motif') or '').strip()
-        systeme = cleaned.get('systeme_a_corriger_final')
-        if prediction:
-            if not motif:
-                cleaned['motif_final'] = prediction.motif
-            if not systeme and prediction.systeme_a_corriger_predit:
+
+        if decision == 'ACCEPTE':
+            if not prediction:
+                raise forms.ValidationError('Sélectionnez le diagnostic à accepter.')
+            # Une acceptation doit toujours conserver exactement le diagnostic choisi.
+            # Cela évite qu'un ancien motif ou système affiché reste attaché si le
+            # superviseur change de proposition juste avant de valider.
+            cleaned['motif_final'] = prediction.motif
+            if prediction.systeme_a_corriger_predit_id:
                 cleaned['systeme_a_corriger_final'] = prediction.systeme_a_corriger_predit
-        if decision == 'INCONNU':
+
+        elif decision == 'INCONNU':
             unknown = Motif.objects.filter(code_motif='MOTIF_INCONNU').first()
             if not unknown:
                 raise forms.ValidationError('Le motif MOTIF_INCONNU doit être initialisé.')
             cleaned['motif_final'] = unknown
-        elif nouveau_motif:
-            cleaned['motif_final'] = None
-        if not cleaned.get('motif_final') and not nouveau_motif:
-            raise forms.ValidationError('Sélectionnez un motif proposé ou saisissez un nouveau motif.')
+
+        elif decision == 'MODIFIE':
+            if nouveau_motif:
+                cleaned['motif_final'] = None
+            elif not motif:
+                raise forms.ValidationError('Sélectionnez un motif existant ou saisissez la cause réelle.')
+
         if not cleaned.get('systeme_a_corriger_final'):
             raise forms.ValidationError('Sélectionnez le système à corriger.')
         return cleaned
