@@ -6,14 +6,14 @@ from .models import Motif, PredictionMotif, Systeme
 class MultiCauseValidationForm(forms.Form):
     """Validation métier d'un dossier avec plusieurs causes simultanées.
 
-    Les prédictions issues de règles métier sont des constats indépendants :
-    VILLE, TELEPHONE, ARTICLE... peuvent donc être retenus ensemble.
+    Les constats issus de règles métier sont indépendants : plusieurs causes
+    peuvent donc être retenues ensemble pour un même blocage de synchronisation.
     """
 
     predictions = forms.ModelMultipleChoiceField(
         queryset=PredictionMotif.objects.none(),
         required=False,
-        label='Corrections détectées',
+        label='Causes détectées',
         widget=forms.CheckboxSelectMultiple,
     )
     prediction = forms.ModelChoiceField(
@@ -25,7 +25,7 @@ class MultiCauseValidationForm(forms.Form):
     motif_final = forms.ModelChoiceField(
         queryset=Motif.objects.filter(actif=True),
         required=False,
-        label='Motif retenu',
+        label='Cause retenue',
         widget=forms.Select(attrs={'class': 'form-select'}),
     )
     nouveau_motif = forms.CharField(
@@ -40,14 +40,14 @@ class MultiCauseValidationForm(forms.Form):
     systeme_a_corriger_final = forms.ModelChoiceField(
         queryset=Systeme.objects.filter(actif=True),
         required=False,
-        label='Système à corriger',
+        label='Système responsable',
         widget=forms.Select(attrs={'class': 'form-select'}),
     )
     decision = forms.ChoiceField(
         choices=[
-            ('ACCEPTE', 'Accepter les corrections sélectionnées'),
-            ('MODIFIE', 'Définir une autre correction'),
-            ('INCONNU', 'Cause à investiguer'),
+            ('ACCEPTE', 'Confirmer la sélection'),
+            ('MODIFIE', 'Ajuster le diagnostic'),
+            ('INCONNU', 'À investiguer'),
         ],
         initial='ACCEPTE',
         widget=forms.RadioSelect,
@@ -71,21 +71,8 @@ class MultiCauseValidationForm(forms.Form):
         self.fields['prediction'].queryset = qs
 
         def label_for(prediction):
-            explanation = prediction.explication or {}
-            targets = explanation.get('systemes_a_corriger') or []
-            if not targets and prediction.systeme_a_corriger_predit_id:
-                targets = [prediction.systeme_a_corriger_predit.code_systeme]
-            indices = explanation.get('indices') or []
-            field = explanation.get('attribut_analyse') or (
-                indices[0].get('champ') if indices else ''
-            )
-            parts = [prediction.motif.libelle]
-            if field:
-                parts.append(field)
-            if targets:
-                parts.append(', '.join(targets))
-            parts.append(f'{float(prediction.score_confiance) * 100:.0f}%')
-            return ' · '.join(parts)
+            score = float(prediction.score_confiance) * 100
+            return f'{prediction.motif.libelle} · {score:.0f}%'
 
         self.fields['predictions'].label_from_instance = label_for
 
@@ -132,7 +119,7 @@ class MultiCauseValidationForm(forms.Form):
             elif prediction is not None:
                 selected = [prediction]
             elif multi_mode and self.anomaly.predictions.exists():
-                raise forms.ValidationError('Sélectionnez au moins une correction à valider.')
+                raise forms.ValidationError('Sélectionnez au moins une cause à valider.')
             elif not multi_mode:
                 prediction = self.anomaly.predictions.order_by('rang').first()
                 if prediction:
@@ -156,16 +143,16 @@ class MultiCauseValidationForm(forms.Form):
                 cleaned['prediction'] = None
                 cleaned['predictions_selectionnees'] = []
             else:
-                raise forms.ValidationError('Aucune correction exploitable n’est disponible.')
+                raise forms.ValidationError('Aucune cause exploitable n’est disponible.')
 
         elif decision == 'MODIFIE':
             cleaned['predictions_selectionnees'] = []
             if nouveau_motif:
                 cleaned['motif_final'] = None
             elif not motif:
-                raise forms.ValidationError('Sélectionnez un motif existant ou saisissez la cause réelle.')
+                raise forms.ValidationError('Sélectionnez une cause existante ou saisissez la cause réelle.')
             if not cleaned.get('systeme_a_corriger_final'):
-                raise forms.ValidationError('Sélectionnez le système à corriger.')
+                raise forms.ValidationError('Sélectionnez le système responsable.')
 
         elif decision == 'INCONNU':
             cleaned['predictions_selectionnees'] = []
