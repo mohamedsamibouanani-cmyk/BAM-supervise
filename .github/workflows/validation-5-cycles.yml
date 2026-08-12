@@ -1,4 +1,4 @@
-name: Validation finale - 5 cycles
+name: Validation finale - 6 cycles
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   cycle1_unit_schema:
-    name: Cycle 1 - Unite et schema
+    name: Cycle 1 - Donnees unite et schema
     runs-on: ubuntu-latest
     env:
       DB_ENGINE: sqlite
@@ -24,11 +24,11 @@ jobs:
         run: python manage.py check
       - name: No pending model migrations
         run: python manage.py makemigrations --check --dry-run
-      - name: Unit and data protection tests
-        run: python manage.py test supervision.tests.test_utils supervision.tests.test_comparison supervision.tests.test_data_protection supervision.tests.test_import_security
+      - name: Comparison import and data protection tests
+        run: python manage.py test supervision.tests.test_utils supervision.tests.test_comparison supervision.tests.test_attribute_constraints supervision.tests.test_data_protection supervision.tests.test_import_security
 
-  cycle2_security:
-    name: Cycle 2 - Securite applicative
+  cycle2_security_accessibility:
+    name: Cycle 2 - Securite accessibilite navigateur
     runs-on: ubuntu-latest
     needs: cycle1_unit_schema
     env:
@@ -42,8 +42,8 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r requirements.txt
-      - name: Negative security tests
-        run: python manage.py test supervision.tests.test_security supervision.tests.test_governance
+      - name: Negative security and governance tests
+        run: python manage.py test supervision.tests.test_security supervision.tests.test_governance supervision.tests.test_accessibility_quality
       - name: Production deploy checks
         env:
           DJANGO_DEBUG: '0'
@@ -56,10 +56,10 @@ jobs:
           BAM_DATA_ENCRYPTION_KEY: production-like-data-encryption-key-for-ci-2026
         run: python manage.py check --deploy --fail-level WARNING
 
-  cycle3_business_workflow:
-    name: Cycle 3 - Workflow metier complet
+  cycle3_supervisor_six_runs:
+    name: Cycle 3 - Recette superviseur six parcours
     runs-on: ubuntu-latest
-    needs: cycle2_security
+    needs: cycle2_security_accessibility
     env:
       DB_ENGINE: sqlite
       DJANGO_SECRET_KEY: cycle3-test-secret-key-2026
@@ -71,15 +71,35 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r requirements.txt
-      - name: Superviseur - 5 iterations fonctionnelles explicites
-        run: python manage.py test supervision.tests.test_supervisor_five_iterations
-      - name: Full Django test suite
+      - name: Six complete end-user cycles
+        run: python manage.py test supervision.tests.test_supervisor_six_cycles
+      - name: Anomaly register and validation UX
+        run: python manage.py test supervision.tests.test_anomaly_list supervision.tests.test_anomaly_workflow supervision.tests.test_validation_form_ui
+
+  cycle4_email_routing:
+    name: Cycle 4 - Routage emails et relances
+    runs-on: ubuntu-latest
+    needs: cycle3_supervisor_six_runs
+    env:
+      DB_ENGINE: sqlite
+      DJANGO_SECRET_KEY: cycle4-test-secret-key-2026
+      BAM_DATA_ENCRYPTION_KEY: cycle4-data-key-2026
+      EMAIL_BACKEND: django.core.mail.backends.locmem.EmailBackend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Email delivery routing and retry tests
+        run: python manage.py test supervision.tests.test_email supervision.tests.test_email_five_cycles supervision.tests.test_multi_system_notifications supervision.tests.test_multi_cause_notifications supervision.tests.test_notification_retry
+      - name: Full Django regression suite
         run: python manage.py test
 
-  cycle4_mysql:
-    name: Cycle 4 - Integration MySQL 8.4
+  cycle5_mysql:
+    name: Cycle 5 - Integration MySQL 8.4
     runs-on: ubuntu-latest
-    needs: cycle3_business_workflow
+    needs: cycle4_email_routing
     services:
       mysql:
         image: mysql:8.4
@@ -100,8 +120,8 @@ jobs:
       MYSQL_PASSWORD: root_password
       MYSQL_HOST: 127.0.0.1
       MYSQL_PORT: 3306
-      DJANGO_SECRET_KEY: cycle4-mysql-secret-key-2026
-      BAM_DATA_ENCRYPTION_KEY: cycle4-mysql-data-key-2026
+      DJANGO_SECRET_KEY: cycle5-mysql-secret-key-2026
+      BAM_DATA_ENCRYPTION_KEY: cycle5-mysql-data-key-2026
       EMAIL_BACKEND: django.core.mail.backends.locmem.EmailBackend
     steps:
       - uses: actions/checkout@v4
@@ -109,21 +129,23 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r requirements.txt
-      - name: Migrate and seed MySQL
+      - name: Migrate seed and protect MySQL
         run: |
           python manage.py migrate --noinput
           python manage.py seed_bam
           python manage.py protect_sensitive_data
           python manage.py check
-      - name: Five supervisor iterations on MySQL
-        run: python manage.py test supervision.tests.test_supervisor_five_iterations
+      - name: Six supervisor cycles on MySQL
+        run: python manage.py test supervision.tests.test_supervisor_six_cycles
+      - name: Critical routing tests on MySQL
+        run: python manage.py test supervision.tests.test_multi_system_notifications supervision.tests.test_notification_retry
       - name: Full tests on MySQL
         run: python manage.py test
 
-  cycle5_docker_e2e:
-    name: Cycle 5 - Docker HTTP statiques securite
+  cycle6_docker_e2e:
+    name: Cycle 6 - Docker HTTP assets securite
     runs-on: ubuntu-latest
-    needs: cycle4_mysql
+    needs: cycle5_mysql
     steps:
       - uses: actions/checkout@v4
       - name: Prepare Docker environment
@@ -146,15 +168,17 @@ jobs:
           docker compose ps
           docker compose logs web
           exit 1
-      - name: Verify BAM identity and local assets
+      - name: Verify local assets and CSP compatible validation code
         run: |
           curl -fsS http://127.0.0.1:8000/static/supervision/app.css | grep -q -- '--mit-red'
           curl -fsS http://127.0.0.1:8000/static/supervision/bam-theme.css | grep -q -- '--bam-blue:#244b9b'
           curl -fsS http://127.0.0.1:8000/static/supervision/bam-theme.css | grep -q -- '--bam-yellow:#ffdc00'
-          curl -fsS http://127.0.0.1:8000/static/supervision/dashboard.js | grep -q 'trendChart'
+          curl -fsS http://127.0.0.1:8000/static/supervision/accessibility.css | grep -q 'skip-link'
+          curl -fsS http://127.0.0.1:8000/static/supervision/validation-form.js | grep -q 'initValidationPage'
+          curl -fsS http://127.0.0.1:8000/static/supervision/notification-list.css | grep -q 'notification-error'
           curl -fsS http://127.0.0.1:8000/static/vendor/bootstrap/bootstrap.min.css | grep -qi 'bootstrap'
           curl -fsS http://127.0.0.1:8000/static/vendor/chart/chart.umd.min.js | grep -q 'Chart'
-      - name: Verify security headers
+      - name: Verify browser security headers
         run: |
           headers="$(curl -fsSI http://127.0.0.1:8000/login/ | tr -d '\r')"
           echo "$headers" | grep -qi '^Content-Security-Policy:'
@@ -167,6 +191,7 @@ jobs:
           echo "$headers" | grep -qi '^X-Frame-Options: DENY'
           echo "$headers" | grep -qi '^X-Content-Type-Options: nosniff'
           echo "$headers" | grep -qi '^Referrer-Policy: same-origin'
+          echo "$headers" | grep -qi '^Cross-Origin-Resource-Policy: same-origin'
       - name: Verify hardened runtime
         run: |
           docker compose exec -T web sh -c "grep '^Uid:' /proc/1/status | grep -Eq 'Uid:[[:space:]]+10001[[:space:]]+10001'"
