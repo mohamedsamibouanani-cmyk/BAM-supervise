@@ -1,6 +1,6 @@
 {% extends 'supervision/base.html' %}
 {% load static %}
-{% block title %}Valider le diagnostic · BAM Supervise{% endblock %}
+{% block title %}Valider les corrections · BAM Supervise{% endblock %}
 {% block head %}<link rel="stylesheet" href="{% static 'supervision/validation-form.css' %}">{% endblock %}
 {% block content %}
 <div class="validation-shell">
@@ -9,7 +9,7 @@
     <div class="validation-head-row">
       <div>
         <div class="validation-eyebrow">Dossier #{{ anomaly.pk }}</div>
-        <h1>Valider le diagnostic</h1>
+        <h1>Valider les corrections</h1>
         <p>
           <strong>{{ anomaly.code_envoi }}</strong>
           <span>·</span> {{ anomaly.get_niveau_display }} {{ anomaly.get_type_ecart_display|lower }}
@@ -22,30 +22,32 @@
 
   <section class="validation-card">
     <form method="post" id="validationForm">{% csrf_token %}
+      {{ form.prediction }}
+      {{ form.multi_cause_mode }}
       {% if form.non_field_errors %}<div class="alert alert-danger validation-error">{{ form.non_field_errors }}</div>{% endif %}
 
       <section class="validation-section">
         <div class="validation-section-head">
           <span class="validation-step">1</span>
-          <div><h2>Diagnostic proposé</h2><p>Vérifiez la cause et les systèmes responsables avant de décider.</p></div>
+          <div>
+            <h2>Corrections détectées</h2>
+            <p>Plusieurs causes peuvent être vraies en même temps. Gardez cochées uniquement celles que vous confirmez.</p>
+          </div>
         </div>
 
-        <label class="form-label" for="{{ form.prediction.id_for_label }}">Proposition</label>
-        {{ form.prediction }}
-        {% if form.prediction.errors %}<div class="text-danger small mt-1">{{ form.prediction.errors }}</div>{% endif %}
+        <div class="validation-correction-options">
+          {{ form.predictions }}
+        </div>
+        {% if form.predictions.errors %}<div class="text-danger small mt-2">{{ form.predictions.errors }}</div>{% endif %}
 
-        <div class="diagnostic-summary" id="diagnosticSummary">
-          <div class="diagnostic-main">
-            <span>Cause proposée</span>
-            <strong id="diagnosticMotif">—</strong>
+        <div class="validation-selection-summary" id="selectionSummary">
+          <div>
+            <span>Corrections retenues</span>
+            <strong id="selectedCount">0</strong>
           </div>
-          <div class="diagnostic-confidence">
-            <span>Confiance</span>
-            <strong id="diagnosticScore">—</strong>
-          </div>
-          <div class="diagnostic-targets">
+          <div class="validation-summary-targets">
             <span>Système(s) à corriger</span>
-            <div class="validation-target-list" id="diagnosticTargets"><em>À déterminer</em></div>
+            <div class="validation-target-list" id="selectedTargets"><em>À déterminer</em></div>
           </div>
         </div>
       </section>
@@ -53,18 +55,18 @@
       <section class="validation-section validation-decision-section">
         <div class="validation-section-head">
           <span class="validation-step">2</span>
-          <div><h2>Décision du superviseur</h2><p>Acceptez le diagnostic ou corrigez uniquement ce qui doit l’être.</p></div>
+          <div><h2>Décision du superviseur</h2><p>Validez l’ensemble sélectionné ou définissez une correction différente.</p></div>
         </div>
 
         <div class="validation-decision-options">{{ form.decision }}</div>
         {% if form.decision.errors %}<div class="text-danger small mt-1">{{ form.decision.errors }}</div>{% endif %}
-        <p class="validation-decision-help" id="decisionHelp">La proposition sélectionnée sera utilisée telle quelle et chaque système responsable sera notifié.</p>
+        <p class="validation-decision-help" id="decisionHelp">Chaque système recevra uniquement les corrections qui le concernent.</p>
       </section>
 
       <section class="validation-section validation-adjustment" id="adjustmentPanel">
         <div class="validation-section-head compact">
           <span class="validation-step">3</span>
-          <div><h2>Ajuster la correction</h2><p>Ces champs ne sont nécessaires que si vous modifiez le diagnostic.</p></div>
+          <div><h2>Définir une autre correction</h2><p>Utilisez cette zone seulement si les corrections proposées ne conviennent pas.</p></div>
         </div>
 
         <div class="validation-adjust-grid">
@@ -74,7 +76,7 @@
             {% if form.motif_final.errors %}<div class="text-danger small mt-1">{{ form.motif_final.errors }}</div>{% endif %}
           </div>
           <div class="validation-system-field">
-            <label class="form-label" for="{{ form.systeme_a_corriger_final.id_for_label }}">Système à corriger</label>
+            <label class="form-label" for="{{ form.systeme_a_corriger_final.id_for_label }}">Système à corriger / investiguer</label>
             {{ form.systeme_a_corriger_final }}
             {% if form.systeme_a_corriger_final.errors %}<div class="text-danger small mt-1">{{ form.systeme_a_corriger_final.errors }}</div>{% endif %}
           </div>
@@ -97,7 +99,7 @@
       </details>
 
       <footer class="validation-actions">
-        <p><i class="bi bi-envelope-check"></i> Après validation, chaque système responsable reçoit une notification traçable.</p>
+        <p><i class="bi bi-envelope-check"></i> Un seul message est préparé par système, avec uniquement les champs qu’il doit corriger.</p>
         <div>
           <a class="btn btn-light" href="{% url 'anomaly_detail' anomaly.pk %}">Annuler</a>
           <button class="btn btn-primary" type="submit"><i class="bi bi-check2-square me-1"></i> Valider et notifier</button>
@@ -124,7 +126,8 @@
 {% block scripts %}
 <script>
 (function () {
-  const predictionSelect = document.getElementById('{{ form.prediction.id_for_label }}');
+  const checkboxes = Array.from(document.querySelectorAll('input[name="predictions"]'));
+  const legacyPrediction = document.getElementById('{{ form.prediction.id_for_label }}');
   const motifSelect = document.getElementById('{{ form.motif_final.id_for_label }}');
   const systemSelect = document.getElementById('{{ form.systeme_a_corriger_final.id_for_label }}');
   const decisionInputs = document.querySelectorAll('input[name="decision"]');
@@ -132,9 +135,8 @@
   const motifField = adjustmentPanel.querySelector('.validation-motif-field');
   const newReason = adjustmentPanel.querySelector('.validation-new-reason');
   const decisionHelp = document.getElementById('decisionHelp');
-  const motifOutput = document.getElementById('diagnosticMotif');
-  const scoreOutput = document.getElementById('diagnosticScore');
-  const targetsOutput = document.getElementById('diagnosticTargets');
+  const countOutput = document.getElementById('selectedCount');
+  const targetsOutput = document.getElementById('selectedTargets');
 
   const metadata = {};
   document.querySelectorAll('#predictionMetadata [data-prediction-id]').forEach(function (node) {
@@ -152,23 +154,30 @@
     return checked ? checked.value : 'ACCEPTE';
   }
 
-  function renderPrediction() {
-    const item = metadata[predictionSelect.value];
-    if (!item) {
-      motifOutput.textContent = 'Sélectionnez une proposition';
-      scoreOutput.textContent = '—';
-      targetsOutput.innerHTML = '<em>À déterminer</em>';
-      return;
-    }
-    motifOutput.textContent = item.motif;
-    scoreOutput.textContent = item.score + '%';
-    targetsOutput.innerHTML = item.targets.length
-      ? item.targets.map(function (code) { return '<span class="validation-target">' + code + '</span>'; }).join('')
-      : '<em>À déterminer</em>';
+  function selectedPredictions() {
+    return checkboxes.filter(function (input) { return input.checked; });
+  }
 
-    if (selectedDecision() === 'ACCEPTE') {
-      if (item.motifId) motifSelect.value = item.motifId;
-      if (item.systemId) systemSelect.value = item.systemId;
+  function renderSelection() {
+    const selected = selectedPredictions();
+    countOutput.textContent = String(selected.length);
+    const targets = [];
+    selected.forEach(function (input) {
+      const item = metadata[input.value];
+      if (!item) return;
+      item.targets.forEach(function (code) {
+        if (!targets.includes(code)) targets.push(code);
+      });
+    });
+    targetsOutput.innerHTML = targets.length
+      ? targets.map(function (code) { return '<span class="validation-target">' + code + '</span>'; }).join('')
+      : '<em>Aucune correction sélectionnée</em>';
+
+    const primary = selected.length ? metadata[selected[0].value] : null;
+    legacyPrediction.value = selected.length ? selected[0].value : '';
+    if (selectedDecision() === 'ACCEPTE' && primary) {
+      if (primary.motifId) motifSelect.value = primary.motifId;
+      if (primary.systemId) systemSelect.value = primary.systemId;
     }
   }
 
@@ -181,18 +190,17 @@
     newReason.hidden = !isModify;
 
     if (isAccept) {
-      decisionHelp.textContent = 'La proposition sélectionnée sera utilisée telle quelle et chaque système responsable sera notifié.';
-      renderPrediction();
+      decisionHelp.textContent = 'Toutes les corrections cochées seront retenues ensemble. Chaque système recevra uniquement celles qui le concernent.';
     } else if (isModify) {
-      decisionHelp.textContent = 'Vous définissez le motif et le système qui doivent réellement être corrigés.';
+      decisionHelp.textContent = 'Les corrections cochées sont remplacées par la correction que vous définissez ci-dessous.';
     } else {
-      decisionHelp.textContent = 'Le motif reste non identifié, mais le système à investiguer doit être précisé.';
+      decisionHelp.textContent = 'La cause reste à investiguer ; précisez le système qui doit effectuer l’analyse.';
     }
+    renderSelection();
   }
 
-  if (predictionSelect) predictionSelect.addEventListener('change', renderPrediction);
+  checkboxes.forEach(function (input) { input.addEventListener('change', renderSelection); });
   decisionInputs.forEach(function (input) { input.addEventListener('change', renderDecision); });
-  renderPrediction();
   renderDecision();
 })();
 </script>
