@@ -48,7 +48,8 @@ class AnomalyWorkQueueTests(TestCase):
         self.assertContains(response, 'Registre des anomalies')
         self.assertContains(response, 'À traiter')
         self.assertContains(response, 'Analyse en cours')
-        self.assertContains(response, 'Prototype')
+        self.assertNotContains(response, 'Prototype')
+        self.assertNotContains(response, 'Import manuel')
 
         response = self.client.get(reverse('anomaly_list'), {'vue': 'en_suivi'})
         self.assertContains(response, 'FOLLOW')
