@@ -1,9 +1,14 @@
 from django.db import migrations, models
 
 
-def remove_value_difference_anomalies(apps, schema_editor):
-    Anomalie = apps.get_model('supervision', 'Anomalie')
-    Anomalie.objects.filter(type_ecart='DIFFERENT').delete()
+def preserve_value_difference_anomalies(apps, schema_editor):
+    """Keep historical anomalies until 0004 restores their supported type.
+
+    Some DIFFERENT anomalies can already have validated notifications. Deleting
+    them here is both unnecessary (0004 restores the choice) and unsafe because
+    Notification.validation uses RESTRICT.
+    """
+    return None
 
 
 class Migration(migrations.Migration):
@@ -13,7 +18,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(remove_value_difference_anomalies, migrations.RunPython.noop),
+        migrations.RunPython(preserve_value_difference_anomalies, migrations.RunPython.noop),
         migrations.AlterField(
             model_name='anomalie',
             name='type_ecart',
