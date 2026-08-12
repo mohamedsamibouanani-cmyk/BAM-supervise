@@ -106,14 +106,25 @@ class ValidationMotifForm(forms.Form):
         nouveau_motif = (cleaned.get('nouveau_motif') or '').strip()
 
         if decision == 'ACCEPTE':
-            if not prediction:
-                raise forms.ValidationError('Sélectionnez le diagnostic à accepter.')
-            # Une acceptation doit toujours conserver exactement le diagnostic choisi.
-            # Cela évite qu'un ancien motif ou système affiché reste attaché si le
-            # superviseur change de proposition juste avant de valider.
-            cleaned['motif_final'] = prediction.motif
-            if prediction.systeme_a_corriger_predit_id:
-                cleaned['systeme_a_corriger_final'] = prediction.systeme_a_corriger_predit
+            # L'interface envoie normalement la proposition sélectionnée. Pour
+            # conserver la compatibilité avec les anciens clients/tests, on
+            # reprend la proposition prioritaire si le champ n'est pas envoyé.
+            if prediction is None:
+                prediction = self.anomaly.predictions.select_related(
+                    'motif', 'systeme_a_corriger_predit'
+                ).order_by('rang').first()
+                if prediction is not None:
+                    cleaned['prediction'] = prediction
+
+            if prediction is not None:
+                # Une acceptation conserve exactement le diagnostic choisi afin
+                # d'éviter un motif ou un système obsolète après changement de
+                # proposition côté interface.
+                cleaned['motif_final'] = prediction.motif
+                if prediction.systeme_a_corriger_predit_id:
+                    cleaned['systeme_a_corriger_final'] = prediction.systeme_a_corriger_predit
+            elif not motif:
+                raise forms.ValidationError('Sélectionnez un diagnostic ou un motif à accepter.')
 
         elif decision == 'INCONNU':
             unknown = Motif.objects.filter(code_motif='MOTIF_INCONNU').first()
