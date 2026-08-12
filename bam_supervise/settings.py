@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import sys
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -80,7 +81,10 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = '/static/'
-STATIC_ROOT = BASE_DIR / 'staticfiles'
+# Docker creates this directory before Gunicorn starts. Django tests do not run
+# collectstatic, so keeping a non-existent STATIC_ROOT there only makes
+# WhiteNoise emit a misleading runtime warning.
+STATIC_ROOT = None if 'test' in sys.argv else BASE_DIR / 'staticfiles'
 STORAGES = {
     'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
     'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage'},

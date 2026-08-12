@@ -277,8 +277,8 @@ class ValeurAttributSnapshot(models.Model):
                 condition=(Q(envoi_snapshot__isnull=False, service_snapshot__isnull=True) | Q(envoi_snapshot__isnull=True, service_snapshot__isnull=False)),
                 name='ck_valeur_parent_xor'
             ),
-            models.UniqueConstraint(fields=['envoi_snapshot', 'attribut'], condition=Q(service_snapshot__isnull=True), name='uq_envoi_attribut'),
-            models.UniqueConstraint(fields=['service_snapshot', 'attribut'], condition=Q(envoi_snapshot__isnull=True), name='uq_service_attribut'),
+            models.UniqueConstraint(fields=['envoi_snapshot', 'attribut'], name='uq_envoi_attribut'),
+            models.UniqueConstraint(fields=['service_snapshot', 'attribut'], name='uq_service_attribut'),
         ]
 
 
