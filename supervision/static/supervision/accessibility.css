@@ -1,0 +1,34 @@
+.skip-link{
+  position:fixed;
+  z-index:2000;
+  top:10px;
+  left:10px;
+  padding:9px 13px;
+  border-radius:9px;
+  background:#102a56;
+  color:#fff;
+  font-size:12px;
+  font-weight:800;
+  transform:translateY(-150%);
+  transition:transform .15s ease;
+}
+.skip-link:focus{
+  color:#fff;
+  transform:translateY(0);
+}
+
+:where(a,button,input,select,textarea,summary,[tabindex]):focus-visible{
+  outline:3px solid #ffdc00;
+  outline-offset:3px;
+}
+
+.bam-content:focus,.auth-wrapper:focus{outline:none}
+
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{
+    scroll-behavior:auto!important;
+    transition-duration:.01ms!important;
+    animation-duration:.01ms!important;
+    animation-iteration-count:1!important;
+  }
+}
