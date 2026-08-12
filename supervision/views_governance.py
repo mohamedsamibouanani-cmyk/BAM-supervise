@@ -16,7 +16,7 @@ from .models import (
     Notification,
     ValidationMotif,
 )
-from .services.notifications import send_validation_email
+from .services.notification_retry import retry_failed_notification
 
 
 def _audit(request, action, entity, entity_id, *, old_values=None, new_values=None):
@@ -34,12 +34,16 @@ def _audit(request, action, entity, entity_id, *, old_values=None, new_values=No
 
 @login_required
 def notification_retry(request, notification_id):
-    """Retry a failed notification without mutating the historical failed record."""
+    """Retry only the failed destination while preserving the original failed record."""
     if request.method != 'POST':
         return HttpResponseNotAllowed(['POST'])
 
     notification = get_object_or_404(
-        Notification.objects.select_related('validation__anomalie'),
+        Notification.objects.select_related(
+            'validation__anomalie',
+            'validation__systeme_a_corriger_final',
+            'groupe__systeme',
+        ),
         pk=notification_id,
     )
     if notification.statut != Notification.Statut.ECHEC:
@@ -47,18 +51,27 @@ def notification_retry(request, notification_id):
         return redirect('notification_list')
 
     try:
-        retried = send_validation_email(notification.validation)
+        retried = retry_failed_notification(notification)
         _audit(
             request,
             'RETRY_EMAIL',
             'notification',
             notification.pk,
-            old_values={'statut': notification.statut, 'nb_tentatives': notification.nb_tentatives},
-            new_values={'nouvelle_notification_id': retried.pk, 'statut': retried.statut},
+            old_values={
+                'statut': notification.statut,
+                'nb_tentatives': notification.nb_tentatives,
+                'systeme': notification.groupe.systeme.code_systeme,
+            },
+            new_values={
+                'nouvelle_notification_id': retried.pk,
+                'statut': retried.statut,
+                'systeme': retried.groupe.systeme.code_systeme,
+            },
         )
         messages.success(
             request,
-            f'Notification relancée avec succès pour l’envoi {notification.validation.anomalie.code_envoi}.',
+            f'Notification {notification.groupe.systeme.code_systeme} relancée avec succès '
+            f'pour l’envoi {notification.validation.anomalie.code_envoi}.',
         )
     except Exception as exc:
         _audit(
@@ -66,7 +79,11 @@ def notification_retry(request, notification_id):
             'RETRY_EMAIL_FAILED',
             'notification',
             notification.pk,
-            old_values={'statut': notification.statut, 'nb_tentatives': notification.nb_tentatives},
+            old_values={
+                'statut': notification.statut,
+                'nb_tentatives': notification.nb_tentatives,
+                'systeme': notification.groupe.systeme.code_systeme,
+            },
             new_values={'erreur': str(exc)[:300]},
         )
         messages.error(request, f'Échec de la relance : {exc}')
