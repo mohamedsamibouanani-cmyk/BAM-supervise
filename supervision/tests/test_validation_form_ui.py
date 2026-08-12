@@ -116,4 +116,4 @@ class ValidationFormUiTests(TestCase):
         self.assertContains(response, 'SICOM')
         self.assertContains(response, 'validation-form.css')
         self.assertContains(response, 'Accepter')
-        self.assertContains(response, 'Modifier')
+        self.assertContains(response, 'Définir une autre correction')
