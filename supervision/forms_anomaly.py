@@ -96,8 +96,6 @@ class MultiCauseValidationForm(forms.Form):
         if final_prediction_ids:
             defaults = list(qs.filter(pk__in=final_prediction_ids).order_by('rang'))
         else:
-            # Les règles effectivement matchées sont cochées ensemble : ce ne sont
-            # pas des alternatives probabilistes, mais des écarts simultanés.
             defaults = list(
                 qs.filter(source_prediction=PredictionMotif.Source.REGLE)
                 .exclude(motif__code_motif='MOTIF_INCONNU')
@@ -133,27 +131,32 @@ class MultiCauseValidationForm(forms.Form):
                 prediction = selected[0]
             elif prediction is not None:
                 selected = [prediction]
-            elif multi_mode:
+            elif multi_mode and self.anomaly.predictions.exists():
                 raise forms.ValidationError('Sélectionnez au moins une correction à valider.')
-            else:
+            elif not multi_mode:
                 prediction = self.anomaly.predictions.order_by('rang').first()
                 if prediction:
                     selected = [prediction]
 
-            if prediction is None:
-                raise forms.ValidationError('Aucune correction exploitable n’est disponible.')
-
-            cleaned['prediction'] = prediction
-            cleaned['predictions_selectionnees'] = selected
-            cleaned['motif_final'] = prediction.motif
-            if prediction.systeme_a_corriger_predit_id:
-                cleaned['systeme_a_corriger_final'] = prediction.systeme_a_corriger_predit
+            if prediction is not None:
+                cleaned['prediction'] = prediction
+                cleaned['predictions_selectionnees'] = selected
+                cleaned['motif_final'] = prediction.motif
+                if prediction.systeme_a_corriger_predit_id:
+                    cleaned['systeme_a_corriger_final'] = prediction.systeme_a_corriger_predit
+                else:
+                    codes = (prediction.explication or {}).get('systemes_a_corriger') or []
+                    if codes:
+                        target = Systeme.objects.filter(code_systeme=codes[0], actif=True).first()
+                        if target:
+                            cleaned['systeme_a_corriger_final'] = target
+            elif motif and cleaned.get('systeme_a_corriger_final'):
+                # Compatibilité avec les anciens workflows qui validaient un motif
+                # explicite alors qu'aucune prédiction n'avait encore été créée.
+                cleaned['prediction'] = None
+                cleaned['predictions_selectionnees'] = []
             else:
-                codes = (prediction.explication or {}).get('systemes_a_corriger') or []
-                if codes:
-                    target = Systeme.objects.filter(code_systeme=codes[0], actif=True).first()
-                    if target:
-                        cleaned['systeme_a_corriger_final'] = target
+                raise forms.ValidationError('Aucune correction exploitable n’est disponible.')
 
         elif decision == 'MODIFIE':
             cleaned['predictions_selectionnees'] = []
