@@ -45,8 +45,10 @@ class AnomalyWorkQueueTests(TestCase):
             'en_suivi': 1,
             'resolues': 1,
         })
-        self.assertContains(response, 'À décider')
-        self.assertContains(response, 'Décision requise')
+        self.assertContains(response, 'Registre des anomalies')
+        self.assertContains(response, 'À traiter')
+        self.assertContains(response, 'Analyse en cours')
+        self.assertContains(response, 'Prototype')
 
         response = self.client.get(reverse('anomaly_list'), {'vue': 'en_suivi'})
         self.assertContains(response, 'FOLLOW')
@@ -54,8 +56,8 @@ class AnomalyWorkQueueTests(TestCase):
         self.assertNotContains(response, 'DONE')
 
     def test_actionable_items_are_ordered_first_and_oldest_first(self):
-        resolved = self._anomaly('RESOLVED', Anomalie.Statut.RESOLUE)
-        newest = self._anomaly('NEWEST', Anomalie.Statut.ANALYSEE)
+        self._anomaly('RESOLVED', Anomalie.Statut.RESOLUE)
+        self._anomaly('NEWEST', Anomalie.Statut.ANALYSEE)
         oldest = self._anomaly('OLDEST', Anomalie.Statut.DETECTEE)
         Anomalie.objects.filter(pk=oldest.pk).update(detectee_le=timezone.now() - timedelta(days=2))
 
@@ -63,8 +65,17 @@ class AnomalyWorkQueueTests(TestCase):
         codes = [anomaly.code_envoi for anomaly in response.context['anomalies']]
 
         self.assertEqual(codes, ['OLDEST', 'NEWEST', 'RESOLVED'])
-        self.assertContains(response, 'Décider', count=2)
-        self.assertContains(response, 'Consulter', count=1)
+        self.assertContains(response, 'Traiter', count=1)
+        self.assertContains(response, '>Voir<', count=2, html=False)
+
+    def test_detected_state_is_kept_technical_not_offered_as_business_filter(self):
+        self._anomaly('TECHNICAL', Anomalie.Statut.DETECTEE)
+
+        response = self.client.get(reverse('anomaly_list'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, '<option value="DETECTEE"', html=False)
+        self.assertContains(response, 'État technique transitoire')
 
     def test_invalid_choice_is_ignored_safely(self):
         self._anomaly('SAFE', Anomalie.Statut.DETECTEE)
