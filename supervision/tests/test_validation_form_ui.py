@@ -114,6 +114,8 @@ class ValidationFormUiTests(TestCase):
         self.assertContains(response, 'Confirmer la sélection')
         self.assertContains(response, 'Ajuster le diagnostic')
         self.assertContains(response, 'À investiguer')
+        self.assertContains(response, 'Tout sélectionner')
+        self.assertContains(response, 'Effacer')
         self.assertContains(response, 'Ville obligatoire manquante · 95%')
         self.assertContains(response, 'Téléphone obligatoire manquant · 90%')
         self.assertContains(response, 'SMI')
