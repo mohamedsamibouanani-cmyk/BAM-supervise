@@ -47,7 +47,7 @@ class AnomalyWorkQueueTests(TestCase):
         })
         self.assertContains(response, 'Registre des anomalies')
         self.assertContains(response, 'À traiter')
-        self.assertContains(response, 'Analyse en cours')
+        self.assertContains(response, 'Analyse automatique')
         self.assertNotContains(response, 'Prototype')
         self.assertNotContains(response, 'Import manuel')
 
@@ -66,8 +66,8 @@ class AnomalyWorkQueueTests(TestCase):
         codes = [anomaly.code_envoi for anomaly in response.context['anomalies']]
 
         self.assertEqual(codes, ['OLDEST', 'NEWEST', 'RESOLVED'])
-        self.assertContains(response, 'Traiter', count=1)
-        self.assertContains(response, 'Voir', count=2)
+        self.assertContains(response, 'Examiner', count=1)
+        self.assertContains(response, 'Ouvrir', count=2)
 
     def test_detected_state_is_kept_technical_not_offered_as_business_filter(self):
         self._anomaly('TECHNICAL', Anomalie.Statut.DETECTEE)
@@ -76,7 +76,7 @@ class AnomalyWorkQueueTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, '<option value="DETECTEE"', html=False)
-        self.assertContains(response, 'État technique transitoire')
+        self.assertContains(response, 'Analyse automatique')
 
     def test_invalid_choice_is_ignored_safely(self):
         self._anomaly('SAFE', Anomalie.Statut.DETECTEE)
@@ -85,3 +85,12 @@ class AnomalyWorkQueueTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'SAFE')
+
+    def test_register_has_accessible_table_and_view_navigation(self):
+        self._anomaly('ACCESSIBLE', Anomalie.Statut.ANALYSEE)
+
+        response = self.client.get(reverse('anomaly_list'))
+
+        self.assertContains(response, 'aria-label="Vues du registre"')
+        self.assertContains(response, 'Registre des anomalies de synchronisation')
+        self.assertContains(response, 'scope="col"')
