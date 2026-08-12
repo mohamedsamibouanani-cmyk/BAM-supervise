@@ -1,7 +1,10 @@
 {% extends 'supervision/base.html' %}
 {% load static %}
 {% block title %}Anomalie {{ anomaly.code_envoi }} · BAM Supervise{% endblock %}
-{% block head %}<link rel="stylesheet" href="{% static 'supervision/anomaly-detail.css' %}">{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{% static 'supervision/anomaly-detail.css' %}">
+<link rel="stylesheet" href="{% static 'supervision/anomaly-multicause.css' %}">
+{% endblock %}
 {% block content %}
 <div class="anomaly-detail-shell">
   <header class="anomaly-detail-head">
@@ -22,7 +25,7 @@
     </div>
     <div class="anomaly-detail-actions">
       {% if anomaly.statut != 'RESOLUE' %}
-        <a class="btn btn-primary" href="{% url 'anomaly_validate' anomaly.pk %}"><i class="bi bi-check2-square me-1"></i> {% if latest_validation %}Réviser la décision{% else %}Valider le diagnostic{% endif %}</a>
+        <a class="btn btn-primary" href="{% url 'anomaly_validate' anomaly.pk %}"><i class="bi bi-check2-square me-1"></i> {% if final_validations %}Réviser les corrections{% else %}Valider les corrections{% endif %}</a>
       {% endif %}
     </div>
   </header>
@@ -64,7 +67,7 @@
         </div>
 
         <div class="anomaly-card-head">
-          <div><h2>État des systèmes</h2><p>Lecture directe des preuves SMI, SICOM et SIBO.</p></div>
+          <div><h2>État des systèmes</h2><p>Constat de présence et de synchronisation dans les sources disponibles.</p></div>
         </div>
         <div class="anomaly-card-body">
           {% if anomaly.details.all %}
@@ -107,54 +110,46 @@
 
       <section class="anomaly-card">
         <div class="anomaly-card-head">
-          <div><h2>Diagnostic</h2><p>La cause la plus probable est mise en avant ; les alternatives restent disponibles.</p></div>
+          <div>
+            <h2>Causes et corrections détectées</h2>
+            <p>Chaque ligne est indépendante : plusieurs causes peuvent expliquer simultanément le même blocage de synchronisation.</p>
+          </div>
+          {% if anomaly.predictions.count %}<span class="decision-count">{{ anomaly.predictions.count }}</span>{% endif %}
         </div>
         <div class="anomaly-card-body">
-          {% for p in anomaly.predictions.all %}
-            {% if forloop.first %}
-              <div class="primary-diagnostic">
-                <div>
-                  <span class="anomaly-section-kicker">Cause principale proposée</span>
-                  <h3 class="primary-diagnostic-title">{{ p.motif.libelle }}</h3>
-                  <div class="primary-diagnostic-meta"><span>{{ p.get_source_prediction_display }}</span></div>
-                  <div class="primary-targets">
-                    <span class="primary-targets-label">Système(s) à corriger</span>
+          <div class="cause-list">
+            {% for p in anomaly.predictions.all %}
+              <article class="cause-row {% if p.source_prediction == 'REGLE' %}is-rule{% endif %}">
+                <div class="cause-copy">
+                  <div class="cause-topline">
+                    <strong>{{ p.motif.libelle }}</strong>
+                    {% if p.source_prediction == 'REGLE' %}<span class="cause-kind">Détectée</span>{% else %}<span class="cause-kind is-suggestion">Suggestion</span>{% endif %}
+                  </div>
+                  {% if p.explication.indices %}
+                    <div class="cause-evidence">
+                      {% for indice in p.explication.indices %}
+                        <span><span class="system-badge">{{ indice.systeme }}</span><strong>{{ indice.champ }}</strong> {{ indice.constat }}</span>
+                      {% endfor %}
+                    </div>
+                  {% elif p.explication.message %}
+                    <p class="cause-message">{{ p.explication.message }}</p>
+                  {% endif %}
+                </div>
+                <div class="cause-side">
+                  <span class="cause-score">{% widthratio p.score_confiance 1 100 %}%</span>
+                  <div class="cause-targets">
                     {% if p.explication.systemes_a_corriger %}
                       {% for code in p.explication.systemes_a_corriger %}<span class="system-badge">{{ code }}</span>{% endfor %}
                     {% elif p.systeme_a_corriger_predit %}
                       <span class="system-badge">{{ p.systeme_a_corriger_predit.code_systeme }}</span>
                     {% else %}<span class="system-state-note">À confirmer</span>{% endif %}
                   </div>
-                  {% if p.explication.indices %}
-                    <div class="primary-indices">
-                      {% for indice in p.explication.indices %}
-                        <div class="primary-index"><span class="system-badge">{{ indice.systeme }}</span><strong>{{ indice.champ }}</strong><span>{{ indice.constat }}</span></div>
-                      {% endfor %}
-                    </div>
-                  {% elif p.explication.message %}<p class="primary-message">{{ p.explication.message }}</p>{% endif %}
                 </div>
-                <div class="primary-confidence"><strong>{% widthratio p.score_confiance 1 100 %}%</strong><span>confiance</span></div>
-              </div>
-            {% endif %}
-          {% empty %}
-            <div class="anomaly-empty"><i class="bi bi-question-circle"></i><strong>Cause non identifiée</strong><p>Le superviseur peut saisir la cause réelle lors de la validation ; elle pourra ensuite être réutilisée pour des dossiers similaires.</p></div>
-          {% endfor %}
-
-          {% if anomaly.predictions.count > 1 %}
-          <details class="secondary-diagnostics">
-            <summary>Voir les autres diagnostics proposés</summary>
-            <div class="secondary-list">
-              {% for p in anomaly.predictions.all %}
-                {% if not forloop.first %}
-                  <div class="secondary-row">
-                    <div><strong>{{ p.motif.libelle }}</strong><small>{% if p.explication.systemes_a_corriger %}À corriger : {{ p.explication.systemes_a_corriger|join:', ' }}{% elif p.systeme_a_corriger_predit %}À corriger : {{ p.systeme_a_corriger_predit.code_systeme }}{% else %}Système à confirmer{% endif %}</small></div>
-                    <span class="secondary-score">{% widthratio p.score_confiance 1 100 %}%</span>
-                  </div>
-                {% endif %}
-              {% endfor %}
-            </div>
-          </details>
-          {% endif %}
+              </article>
+            {% empty %}
+              <div class="anomaly-empty"><i class="bi bi-question-circle"></i><strong>Cause non identifiée</strong><p>Le superviseur peut saisir la cause réelle lors de la validation.</p></div>
+            {% endfor %}
+          </div>
         </div>
       </section>
     </div>
@@ -162,26 +157,28 @@
     <aside class="anomaly-side-column">
       <section class="anomaly-card decision-card">
         <div class="anomaly-card-head">
-          <div><h2>Décision superviseur</h2><p>Une seule action claire pour clôturer l’analyse.</p></div>
+          <div><h2>Décision superviseur</h2><p>Validez les corrections réellement nécessaires.</p></div>
         </div>
         <div class="decision-focus">
-          {% if latest_validation %}
-            <span class="decision-focus-label">Décision enregistrée</span>
-            <h3>{{ latest_validation.motif_final.libelle }}</h3>
-            <p>{{ latest_validation.get_decision_display }} · version v{{ latest_validation.version_validation }} · {{ latest_validation.validee_le|date:'d/m/Y H:i' }}</p>
-            <div class="decision-targets">
-              <span>À corriger</span>
-              {% if latest_validation.decision == 'ACCEPTE' and latest_validation.prediction_retenue.explication.systemes_a_corriger %}
-                {% for code in latest_validation.prediction_retenue.explication.systemes_a_corriger %}<span class="system-badge">{{ code }}</span>{% endfor %}
-              {% elif latest_validation.systeme_a_corriger_final %}
-                <span class="system-badge">{{ latest_validation.systeme_a_corriger_final.code_systeme }}</span>
-              {% else %}<span class="system-state-note">Non précisé</span>{% endif %}
+          {% if final_validations %}
+            <span class="decision-focus-label">Corrections validées</span>
+            <div class="decision-intro"><span class="decision-count">{{ final_validations|length }}</span><span>cause(s) actuellement retenue(s) pour ce dossier.</span></div>
+            <div class="decision-corrections">
+              {% for validation in final_validations %}
+                <div class="decision-correction">
+                  <strong>{{ validation.motif_final.libelle }}</strong>
+                  <div class="decision-correction-meta">
+                    {% if validation.decision == 'ACCEPTE' and validation.prediction_retenue.explication.systemes_a_corriger %}
+                      {% for code in validation.prediction_retenue.explication.systemes_a_corriger %}<span class="system-badge">{{ code }}</span>{% endfor %}
+                    {% elif validation.systeme_a_corriger_final %}
+                      <span class="system-badge">{{ validation.systeme_a_corriger_final.code_systeme }}</span>
+                    {% endif %}
+                    <span>v{{ validation.version_validation }}</span>
+                  </div>
+                </div>
+              {% endfor %}
             </div>
-            <div class="decision-summary-grid">
-              <div class="decision-summary-item"><span>Décision</span><strong>{{ latest_validation.get_decision_display }}</strong></div>
-              <div class="decision-summary-item"><span>Version</span><strong>v{{ latest_validation.version_validation }}</strong></div>
-              {% if latest_validation.commentaire %}<div class="decision-summary-item wide"><span>Commentaire</span><strong>{{ latest_validation.commentaire }}</strong></div>{% endif %}
-            </div>
+
             {% if notifications %}
               <div class="notification-mini-list">
                 {% for notification in notifications %}
@@ -192,12 +189,13 @@
                 {% endfor %}
               </div>
             {% endif %}
-            {% if anomaly.statut != 'RESOLUE' %}<a class="btn btn-primary decision-primary-action" href="{% url 'anomaly_validate' anomaly.pk %}"><i class="bi bi-pencil-square"></i> Réviser la décision</a>{% endif %}
+
+            {% if anomaly.statut != 'RESOLUE' %}<a class="btn btn-primary decision-primary-action" href="{% url 'anomaly_validate' anomaly.pk %}"><i class="bi bi-pencil-square"></i> Réviser les corrections</a>{% endif %}
           {% else %}
             <span class="decision-focus-label">Action requise</span>
-            {% for p in anomaly.predictions.all %}{% if forloop.first %}<h3>{{ p.motif.libelle }}</h3><p>Confirmez cette cause ou corrigez-la avant notification.</p><div class="decision-targets"><span>À corriger</span>{% if p.explication.systemes_a_corriger %}{% for code in p.explication.systemes_a_corriger %}<span class="system-badge">{{ code }}</span>{% endfor %}{% elif p.systeme_a_corriger_predit %}<span class="system-badge">{{ p.systeme_a_corriger_predit.code_systeme }}</span>{% else %}<span class="system-state-note">À confirmer</span>{% endif %}</div>{% endif %}{% empty %}<h3>Cause à confirmer</h3><p>Aucun diagnostic fiable n’a été retenu automatiquement.</p>{% endfor %}
-            <a class="btn btn-primary decision-primary-action" href="{% url 'anomaly_validate' anomaly.pk %}"><i class="bi bi-check2-square"></i> Valider le diagnostic</a>
-            <a class="decision-secondary-action" href="{% url 'anomaly_validate' anomaly.pk %}">Modifier la cause ou le système</a>
+            <h3>Examiner les corrections détectées</h3>
+            <div class="decision-intro"><i class="bi bi-layers"></i><span>Une anomalie peut avoir plusieurs causes. Vous pouvez valider VILLE, TÉLÉPHONE, ARTICLE ou toute autre correction pertinente ensemble.</span></div>
+            <a class="btn btn-primary decision-primary-action" href="{% url 'anomaly_validate' anomaly.pk %}"><i class="bi bi-check2-square"></i> Examiner et valider</a>
           {% endif %}
         </div>
       </section>
