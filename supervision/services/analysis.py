@@ -180,6 +180,7 @@ def _append_learned_predictions(anomaly, rank, used_motif_ids):
                 'message': 'Motif reconnu à partir d’un dossier similaire validé par le superviseur.',
                 'origine': f'Dossier #{example.validation.anomalie_id}',
                 'systemes_a_corriger': [example.systeme_a_corriger_label.code_systeme],
+                'role_diagnostic': 'SUGGESTION',
             },
         )
         seen.add(example.motif_label_id)
@@ -191,10 +192,17 @@ def analyze_anomaly(anomaly):
     PredictionMotif.objects.filter(anomalie=anomaly).delete()
     rank = 1
     used_motif_ids = set()
-    rules = RegleMetier.objects.filter(actif=True, niveau_anomalie=anomaly.niveau).select_related('motif_suggere', 'flux__systeme_source', 'flux__systeme_destination', 'attribut')
+    rules = RegleMetier.objects.filter(
+        actif=True,
+        niveau_anomalie=anomaly.niveau,
+    ).select_related(
+        'motif_suggere', 'flux__systeme_source', 'flux__systeme_destination', 'attribut'
+    )
+
+    # Toutes les règles métier effectivement violées sont conservées. Elles ne
+    # sont pas des alternatives entre elles : VILLE, TELEPHONE, ARTICLE, etc.
+    # peuvent constituer plusieurs causes simultanées du même blocage.
     for rule in rules:
-        if rank > 3:
-            break
         if _rule_matches(rule, anomaly):
             target_codes = _correction_system_codes(rule, anomaly)
             predicted_system = None
@@ -216,12 +224,18 @@ def analyze_anomaly(anomaly):
                     'attribut_analyse': rule.attribut.code_attribut if rule.attribut_id else None,
                     'indices': _diagnostic_evidence(rule, anomaly),
                     'systemes_a_corriger': target_codes,
+                    'role_diagnostic': 'CAUSE_ACTIVE',
                 },
             )
             used_motif_ids.add(rule.motif_suggere_id)
             rank += 1
-    rank = _append_learned_predictions(anomaly, rank, used_motif_ids)
-    rank = _append_ml_predictions(anomaly, rank)
+
+    # L'apprentissage/ML reste un mécanisme de suggestion quand aucune règle
+    # explicite n'a identifié de cause concrète dans les données.
+    if rank == 1:
+        rank = _append_learned_predictions(anomaly, rank, used_motif_ids)
+        rank = _append_ml_predictions(anomaly, rank)
+
     if rank == 1:
         unknown = Motif.objects.filter(code_motif='MOTIF_INCONNU').first()
         fallback = _fallback_rule()
@@ -238,6 +252,7 @@ def analyze_anomaly(anomaly):
                 explication={
                     'message': 'Aucune règle ou prédiction ML suffisamment précise.',
                     'systemes_a_corriger': target_codes,
+                    'role_diagnostic': 'SUGGESTION',
                 },
             )
     if anomaly.predictions.exists() and anomaly.statut == anomaly.Statut.DETECTEE:
@@ -304,7 +319,11 @@ def _append_ml_predictions(anomaly, rank):
                 systeme_a_corriger_predit=anomaly.systeme_ecart,
                 rang=rank,
                 score_confiance=Decimal(str(round(float(score), 4))),
-                explication={'features': features, 'systemes_a_corriger': target_codes},
+                explication={
+                    'features': features,
+                    'systemes_a_corriger': target_codes,
+                    'role_diagnostic': 'SUGGESTION',
+                },
             )
             rank += 1
         return rank
