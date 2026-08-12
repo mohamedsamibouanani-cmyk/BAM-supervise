@@ -134,7 +134,7 @@ def anomaly_validate(request, pk):
                         _create_learning_example(validation)
                         validations.append(validation)
                 else:
-                    # Compatibilité avec le workflow historique : une correction
+                    # Compatibilité avec le workflow historique : une cause
                     # explicite peut être validée même si le moteur n'a créé aucune
                     # PredictionMotif pour ce dossier.
                     validation = ValidationMotif.objects.create(
@@ -188,7 +188,7 @@ def anomaly_validate(request, pk):
                 validations.append(validation)
 
             if not validations:
-                form.add_error(None, 'Aucune correction valide n’a pu être enregistrée.')
+                form.add_error(None, 'Aucune décision valide n’a pu être enregistrée.')
             else:
                 old_status = anomaly.statut
                 anomaly.statut = Anomalie.Statut.VALIDEE
@@ -201,7 +201,7 @@ def anomaly_validate(request, pk):
                     nouveau_statut=Anomalie.Statut.VALIDEE,
                     source_evenement='SUPERVISEUR',
                     superviseur=request.user,
-                    commentaire=f'{len(validations)} correction(s) validée(s) : {labels}',
+                    commentaire=f'{len(validations)} cause(s) validée(s) : {labels}',
                 )
 
                 _audit(request, 'VALIDATE', 'validation_motif', validations[0].pk, {
@@ -218,16 +218,17 @@ def anomaly_validate(request, pk):
 
                 try:
                     # Le service agrège toutes les validations finales du dossier et
-                    # envoie un seul message par système avec uniquement ses corrections.
+                    # envoie un seul message par système avec uniquement les causes
+                    # qui concernent ce système.
                     send_validation_email(validations[0])
                     messages.success(
                         request,
-                        f'{len(validations)} correction(s) validée(s). Les équipes responsables ont été notifiées.',
+                        f'{len(validations)} cause(s) validée(s). Les équipes responsables ont été notifiées.',
                     )
                 except Exception as exc:
                     messages.warning(
                         request,
-                        f'Corrections validées, mais certaines notifications n’ont pas pu être envoyées : {exc}',
+                        f'Décision enregistrée, mais certaines notifications n’ont pas pu être envoyées : {exc}',
                     )
                 return redirect('anomaly_detail', pk=pk)
     else:
