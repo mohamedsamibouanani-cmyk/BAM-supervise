@@ -9,6 +9,7 @@ from .models import (
     Anomalie, ExempleApprentissage, HistoriqueAnomalie, JournalAudit, Motif,
     Notification, Systeme, ValidationMotif,
 )
+from .services.analysis import prediction_target_codes, refresh_prediction_routing
 from .services.notifications import send_validation_email
 
 
@@ -25,15 +26,12 @@ def _audit(request, action, entity, entity_id, new_values=None, old_values=None)
     )
 
 
-def _prediction_target_system(prediction, fallback=None):
-    if prediction.systeme_a_corriger_predit_id:
-        return prediction.systeme_a_corriger_predit
-    codes = (prediction.explication or {}).get('systemes_a_corriger') or []
-    if codes:
-        system = Systeme.objects.filter(code_systeme=codes[0], actif=True).first()
-        if system:
-            return system
-    return fallback
+def _prediction_target_system(prediction):
+    """Return the first system confirmed by current evidence, never the observed-system fallback."""
+    codes = prediction_target_codes(prediction)
+    if not codes:
+        return None
+    return Systeme.objects.filter(code_systeme=codes[0], actif=True).first()
 
 
 def _create_learning_example(validation):
@@ -63,6 +61,9 @@ def anomaly_detail(request, pk):
             'details__systeme',
             'predictions__motif',
             'predictions__systeme_a_corriger_predit',
+            'predictions__regle__attribut',
+            'predictions__regle__flux__systeme_source',
+            'predictions__regle__flux__systeme_destination',
             'validations__motif_final',
             'validations__systeme_a_corriger_final',
             'validations__prediction_retenue',
@@ -71,6 +72,11 @@ def anomaly_detail(request, pk):
         ),
         pk=pk,
     )
+
+    # Older dossiers may contain routing metadata produced by an earlier engine
+    # version. Refresh only the targets; prediction IDs and audit history stay intact.
+    refresh_prediction_routing(anomaly)
+
     final_validations = list(
         anomaly.validations.filter(est_finale=True)
         .select_related('motif_final', 'systeme_a_corriger_final', 'prediction_retenue')
@@ -100,6 +106,10 @@ def anomaly_validate(request, pk):
         pk=pk,
     )
 
+    # Re-evaluate responsible systems before both rendering and accepting the form.
+    # This prevents a stale SIBO target from surviving after the routing rules evolve.
+    refresh_prediction_routing(anomaly)
+
     if request.method == 'POST':
         form = MultiCauseValidationForm(anomaly, request.POST)
         if form.is_valid():
@@ -117,7 +127,7 @@ def anomaly_validate(request, pk):
                 selected_predictions = form.cleaned_data.get('predictions_selectionnees') or []
                 if selected_predictions:
                     for offset, prediction in enumerate(selected_predictions):
-                        target = _prediction_target_system(prediction, anomaly.systeme_ecart)
+                        target = _prediction_target_system(prediction)
                         if target is None:
                             continue
                         validation = ValidationMotif.objects.create(
@@ -188,7 +198,11 @@ def anomaly_validate(request, pk):
                 validations.append(validation)
 
             if not validations:
-                form.add_error(None, 'Aucune décision valide n’a pu être enregistrée.')
+                form.add_error(
+                    None,
+                    'Aucun système responsable n’est confirmé par les données pour les causes sélectionnées. '
+                    'Révisez le diagnostic au lieu de notifier le système observé.',
+                )
             else:
                 old_status = anomaly.statut
                 anomaly.statut = Anomalie.Statut.VALIDEE
@@ -205,8 +219,8 @@ def anomaly_validate(request, pk):
                 )
 
                 _audit(request, 'VALIDATE', 'validation_motif', validations[0].pk, {
-                    'nb_corrections': len(validations),
-                    'corrections': [
+                    'nb_causes': len(validations),
+                    'causes': [
                         {
                             'motif': v.motif_final.code_motif,
                             'systeme_principal': v.systeme_a_corriger_final.code_systeme,
