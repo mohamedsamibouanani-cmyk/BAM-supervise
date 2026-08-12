@@ -1,40 +1,199 @@
 {% extends 'supervision/base.html' %}
-{% block title %}Validation du motif · BAM Supervise{% endblock %}
+{% load static %}
+{% block title %}Valider le diagnostic · BAM Supervise{% endblock %}
+{% block head %}<link rel="stylesheet" href="{% static 'supervision/validation-form.css' %}">{% endblock %}
 {% block content %}
-<div class="page-header">
-  <div>
-    <div class="page-eyebrow"><a href="{% url 'anomaly_detail' anomaly.pk %}"><i class="bi bi-arrow-left"></i> Dossier #{{ anomaly.pk }}</a></div>
-    <h1 class="page-title">Validation du motif</h1>
-    <p class="page-subtitle">Confirmez la cause ou saisissez un nouveau motif, puis notifiez les équipes responsables.</p>
-  </div>
+<div class="validation-shell">
+  <header class="validation-page-head">
+    <a class="validation-back" href="{% url 'anomaly_detail' anomaly.pk %}"><i class="bi bi-arrow-left"></i> Retour au dossier</a>
+    <div class="validation-head-row">
+      <div>
+        <div class="validation-eyebrow">Dossier #{{ anomaly.pk }}</div>
+        <h1>Valider le diagnostic</h1>
+        <p>
+          <strong>{{ anomaly.code_envoi }}</strong>
+          <span>·</span> {{ anomaly.get_niveau_display }} {{ anomaly.get_type_ecart_display|lower }}
+          {% if anomaly.systeme_ecart %}<span>·</span> observé dans <strong>{{ anomaly.systeme_ecart.code_systeme }}</strong>{% endif %}
+        </p>
+      </div>
+      <span class="status-badge status-{{ anomaly.statut }}">{{ anomaly.get_statut_display }}</span>
+    </div>
+  </header>
+
+  <section class="validation-card">
+    <form method="post" id="validationForm">{% csrf_token %}
+      {% if form.non_field_errors %}<div class="alert alert-danger validation-error">{{ form.non_field_errors }}</div>{% endif %}
+
+      <section class="validation-section">
+        <div class="validation-section-head">
+          <span class="validation-step">1</span>
+          <div><h2>Diagnostic proposé</h2><p>Vérifiez la cause et les systèmes responsables avant de décider.</p></div>
+        </div>
+
+        <label class="form-label" for="{{ form.prediction.id_for_label }}">Proposition</label>
+        {{ form.prediction }}
+        {% if form.prediction.errors %}<div class="text-danger small mt-1">{{ form.prediction.errors }}</div>{% endif %}
+
+        <div class="diagnostic-summary" id="diagnosticSummary">
+          <div class="diagnostic-main">
+            <span>Cause proposée</span>
+            <strong id="diagnosticMotif">—</strong>
+          </div>
+          <div class="diagnostic-confidence">
+            <span>Confiance</span>
+            <strong id="diagnosticScore">—</strong>
+          </div>
+          <div class="diagnostic-targets">
+            <span>Système(s) à corriger</span>
+            <div class="validation-target-list" id="diagnosticTargets"><em>À déterminer</em></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="validation-section validation-decision-section">
+        <div class="validation-section-head">
+          <span class="validation-step">2</span>
+          <div><h2>Décision du superviseur</h2><p>Acceptez le diagnostic ou corrigez uniquement ce qui doit l’être.</p></div>
+        </div>
+
+        <div class="validation-decision-options">{{ form.decision }}</div>
+        {% if form.decision.errors %}<div class="text-danger small mt-1">{{ form.decision.errors }}</div>{% endif %}
+        <p class="validation-decision-help" id="decisionHelp">La proposition sélectionnée sera utilisée telle quelle et chaque système responsable sera notifié.</p>
+      </section>
+
+      <section class="validation-section validation-adjustment" id="adjustmentPanel">
+        <div class="validation-section-head compact">
+          <span class="validation-step">3</span>
+          <div><h2>Ajuster la correction</h2><p>Ces champs ne sont nécessaires que si vous modifiez le diagnostic.</p></div>
+        </div>
+
+        <div class="validation-adjust-grid">
+          <div class="validation-motif-field">
+            <label class="form-label" for="{{ form.motif_final.id_for_label }}">Motif retenu</label>
+            {{ form.motif_final }}
+            {% if form.motif_final.errors %}<div class="text-danger small mt-1">{{ form.motif_final.errors }}</div>{% endif %}
+          </div>
+          <div class="validation-system-field">
+            <label class="form-label" for="{{ form.systeme_a_corriger_final.id_for_label }}">Système à corriger</label>
+            {{ form.systeme_a_corriger_final }}
+            {% if form.systeme_a_corriger_final.errors %}<div class="text-danger small mt-1">{{ form.systeme_a_corriger_final.errors }}</div>{% endif %}
+          </div>
+          <div class="validation-new-reason">
+            <div class="validation-or"><span>ou</span></div>
+            <label class="form-label" for="{{ form.nouveau_motif.id_for_label }}">Saisir la cause réelle</label>
+            {{ form.nouveau_motif }}
+            {% if form.nouveau_motif.errors %}<div class="text-danger small mt-1">{{ form.nouveau_motif.errors }}</div>{% endif %}
+            <small>Une nouvelle cause validée sera mémorisée pour les prochains dossiers similaires.</small>
+          </div>
+        </div>
+      </section>
+
+      <details class="validation-comment" {% if form.commentaire.errors or form.commentaire.value %}open{% endif %}>
+        <summary><span><i class="bi bi-chat-left-text"></i> Ajouter un commentaire</span><small>Facultatif</small></summary>
+        <div class="validation-comment-body">
+          {{ form.commentaire }}
+          {% if form.commentaire.errors %}<div class="text-danger small mt-1">{{ form.commentaire.errors }}</div>{% endif %}
+        </div>
+      </details>
+
+      <footer class="validation-actions">
+        <p><i class="bi bi-envelope-check"></i> Après validation, chaque système responsable reçoit une notification traçable.</p>
+        <div>
+          <a class="btn btn-light" href="{% url 'anomaly_detail' anomaly.pk %}">Annuler</a>
+          <button class="btn btn-primary" type="submit"><i class="bi bi-check2-square me-1"></i> Valider et notifier</button>
+        </div>
+      </footer>
+    </form>
+  </section>
 </div>
 
-<div class="row g-3 justify-content-center">
-  <div class="col-xl-8">
-    <section class="panel">
-      <div class="panel-header">
-        <div><h2 class="panel-title">Décision du superviseur</h2><p class="panel-subtitle">Envoi {{ anomaly.code_envoi }} · {{ anomaly.get_niveau_display }} · {{ anomaly.get_type_ecart_display }}</p></div>
-        <span class="status-badge status-{{ anomaly.statut }}">{{ anomaly.get_statut_display }}</span>
-      </div>
-      <div class="panel-body">
-        <form method="post">{% csrf_token %}
-          {% if form.non_field_errors %}<div class="alert alert-danger">{{ form.non_field_errors }}</div>{% endif %}
-          <div class="row g-3">
-            <div class="col-12"><label class="form-label" for="{{ form.prediction.id_for_label }}">Proposition retenue</label>{{ form.prediction }}{% if form.prediction.errors %}<div class="text-danger small mt-1">{{ form.prediction.errors }}</div>{% endif %}<div class="text-secondary mt-1" style="font-size:10px">Une proposition peut identifier plusieurs systèmes responsables. Si vous l’acceptez, chacun de ces systèmes sera routé vers son propre groupe.</div></div>
-            <div class="col-md-6"><label class="form-label" for="{{ form.motif_final.id_for_label }}">Motif proposé</label>{{ form.motif_final }}{% if form.motif_final.errors %}<div class="text-danger small mt-1">{{ form.motif_final.errors }}</div>{% endif %}</div>
-            <div class="col-md-6"><label class="form-label" for="{{ form.systeme_a_corriger_final.id_for_label }}">Système explicite / principal</label>{{ form.systeme_a_corriger_final }}{% if form.systeme_a_corriger_final.errors %}<div class="text-danger small mt-1">{{ form.systeme_a_corriger_final.errors }}</div>{% endif %}<div class="text-secondary mt-1" style="font-size:10px">Avec « Accepter », BAM Supervise utilise toutes les cibles de la proposition. Avec « Modifier », ce système devient la cible explicite de votre décision.</div></div>
-            <div class="col-12"><div class="form-separator"><span>ou</span></div><label class="form-label" for="{{ form.nouveau_motif.id_for_label }}">Saisir la cause réelle</label>{{ form.nouveau_motif }}{% if form.nouveau_motif.errors %}<div class="text-danger small mt-1">{{ form.nouveau_motif.errors }}</div>{% endif %}<div class="text-secondary mt-1" style="font-size:10px">Ce motif sera mémorisé après validation et pourra être proposé pour un prochain dossier similaire.</div></div>
-            <div class="col-md-6"><label class="form-label" for="{{ form.decision.id_for_label }}">Type de décision</label>{{ form.decision }}{% if form.decision.errors %}<div class="text-danger small mt-1">{{ form.decision.errors }}</div>{% endif %}</div>
-            <div class="col-12"><label class="form-label" for="{{ form.commentaire.id_for_label }}">Commentaire</label>{{ form.commentaire }}{% if form.commentaire.errors %}<div class="text-danger small mt-1">{{ form.commentaire.errors }}</div>{% endif %}</div>
-          </div>
-          <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mt-4 pt-3 border-top">
-            <div class="text-secondary" style="font-size:11px"><i class="bi bi-envelope-check me-1"></i> Après validation : motif + système(s) responsable(s) → groupe(s) responsable(s) → notification(s) traçable(s).</div>
-            <div class="d-flex gap-2"><a class="btn btn-light" href="{% url 'anomaly_detail' anomaly.pk %}">Annuler</a><button class="btn btn-primary" type="submit"><i class="bi bi-check2-square me-1"></i> Valider et notifier</button></div>
-          </div>
-        </form>
-      </div>
-    </section>
-  </div>
-  <div class="col-xl-4"><section class="panel"><div class="panel-body"><div class="decision-summary"><i class="bi bi-envelope-check"></i><h3>Après validation</h3><p>Chaque groupe concerné reçoit le code d’envoi, l’attribut concerné, les valeurs observées ou le système où l’anomalie apparaît, le motif validé et le champ à corriger.</p></div></div></section></div>
+<div id="predictionMetadata" hidden>
+  {% for prediction in anomaly.predictions.all %}
+    <span
+      data-prediction-id="{{ prediction.pk }}"
+      data-motif-id="{{ prediction.motif_id }}"
+      data-motif="{{ prediction.motif.libelle }}"
+      data-score="{% widthratio prediction.score_confiance 1 100 %}"
+      data-system-id="{{ prediction.systeme_a_corriger_predit_id|default:'' }}"
+      data-targets="{% if prediction.explication.systemes_a_corriger %}{{ prediction.explication.systemes_a_corriger|join:',' }}{% elif prediction.systeme_a_corriger_predit %}{{ prediction.systeme_a_corriger_predit.code_systeme }}{% endif %}"
+    ></span>
+  {% endfor %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const predictionSelect = document.getElementById('{{ form.prediction.id_for_label }}');
+  const motifSelect = document.getElementById('{{ form.motif_final.id_for_label }}');
+  const systemSelect = document.getElementById('{{ form.systeme_a_corriger_final.id_for_label }}');
+  const decisionInputs = document.querySelectorAll('input[name="decision"]');
+  const adjustmentPanel = document.getElementById('adjustmentPanel');
+  const motifField = adjustmentPanel.querySelector('.validation-motif-field');
+  const newReason = adjustmentPanel.querySelector('.validation-new-reason');
+  const decisionHelp = document.getElementById('decisionHelp');
+  const motifOutput = document.getElementById('diagnosticMotif');
+  const scoreOutput = document.getElementById('diagnosticScore');
+  const targetsOutput = document.getElementById('diagnosticTargets');
+
+  const metadata = {};
+  document.querySelectorAll('#predictionMetadata [data-prediction-id]').forEach(function (node) {
+    metadata[node.dataset.predictionId] = {
+      motifId: node.dataset.motifId,
+      motif: node.dataset.motif,
+      score: node.dataset.score,
+      systemId: node.dataset.systemId,
+      targets: (node.dataset.targets || '').split(',').filter(Boolean)
+    };
+  });
+
+  function selectedDecision() {
+    const checked = document.querySelector('input[name="decision"]:checked');
+    return checked ? checked.value : 'ACCEPTE';
+  }
+
+  function renderPrediction() {
+    const item = metadata[predictionSelect.value];
+    if (!item) {
+      motifOutput.textContent = 'Sélectionnez une proposition';
+      scoreOutput.textContent = '—';
+      targetsOutput.innerHTML = '<em>À déterminer</em>';
+      return;
+    }
+    motifOutput.textContent = item.motif;
+    scoreOutput.textContent = item.score + '%';
+    targetsOutput.innerHTML = item.targets.length
+      ? item.targets.map(function (code) { return '<span class="validation-target">' + code + '</span>'; }).join('')
+      : '<em>À déterminer</em>';
+
+    if (selectedDecision() === 'ACCEPTE') {
+      if (item.motifId) motifSelect.value = item.motifId;
+      if (item.systemId) systemSelect.value = item.systemId;
+    }
+  }
+
+  function renderDecision() {
+    const decision = selectedDecision();
+    const isAccept = decision === 'ACCEPTE';
+    const isModify = decision === 'MODIFIE';
+    adjustmentPanel.hidden = isAccept;
+    motifField.hidden = !isModify;
+    newReason.hidden = !isModify;
+
+    if (isAccept) {
+      decisionHelp.textContent = 'La proposition sélectionnée sera utilisée telle quelle et chaque système responsable sera notifié.';
+      renderPrediction();
+    } else if (isModify) {
+      decisionHelp.textContent = 'Vous définissez le motif et le système qui doivent réellement être corrigés.';
+    } else {
+      decisionHelp.textContent = 'Le motif reste non identifié, mais le système à investiguer doit être précisé.';
+    }
+  }
+
+  if (predictionSelect) predictionSelect.addEventListener('change', renderPrediction);
+  decisionInputs.forEach(function (input) { input.addEventListener('change', renderDecision); });
+  renderPrediction();
+  renderDecision();
+})();
+</script>
 {% endblock %}
