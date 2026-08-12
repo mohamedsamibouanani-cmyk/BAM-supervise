@@ -119,27 +119,81 @@ def _diagnostic_evidence(rule, anomaly):
     return evidence
 
 
+def _evidence_system_codes(evidence):
+    """Extract systems that actually contain a source-side issue from diagnostic evidence."""
+    issue_markers = (
+        'vide', 'absent', 'non conforme', 'aucun service', 'uniquement des chiffres',
+    )
+    codes = []
+    for item in evidence or []:
+        constat = str(item.get('constat') or '').lower()
+        code = str(item.get('systeme') or '').strip().upper()
+        if code and any(marker in constat for marker in issue_markers) and code not in codes:
+            codes.append(code)
+    return codes
+
+
 def _correction_system_codes(rule, anomaly):
     """Return every system that contains the detected cause, without hard-coded system names."""
     if rule.flux_id:
         return [rule.flux.systeme_source.code_systeme]
 
     evidence = _diagnostic_evidence(rule, anomaly)
-    issue_markers = (
-        'vide', 'absent', 'non conforme', 'aucun service', 'uniquement des chiffres',
-    )
-    codes = []
-    for item in evidence:
-        constat = str(item.get('constat') or '').lower()
-        code = item.get('systeme')
-        if code and any(marker in constat for marker in issue_markers) and code not in codes:
-            codes.append(code)
-
+    codes = _evidence_system_codes(evidence)
     if codes:
         return codes
     if anomaly.systeme_ecart_id:
         return [anomaly.systeme_ecart.code_systeme]
     return []
+
+
+def prediction_target_codes(prediction):
+    """Resolve responsible systems from current evidence, not only persisted prediction metadata.
+
+    Rule-based predictions are recomputed against the campaign snapshots. This protects
+    older dossiers created before routing fixes: the observed system is never trusted as
+    the correction target when source evidence identifies other systems.
+    """
+    if prediction.source_prediction == PredictionMotif.Source.REGLE and prediction.regle_id:
+        rule = prediction.regle
+        if _rule_matches(rule, prediction.anomalie):
+            return _correction_system_codes(rule, prediction.anomalie)
+        return []
+
+    explanation = prediction.explication or {}
+    evidence_codes = _evidence_system_codes(explanation.get('indices') or [])
+    if evidence_codes:
+        return evidence_codes
+
+    codes = []
+    for code in explanation.get('systemes_a_corriger') or []:
+        normalized = str(code or '').strip().upper()
+        if normalized and normalized not in codes:
+            codes.append(normalized)
+    if not codes and prediction.systeme_a_corriger_predit_id:
+        codes.append(prediction.systeme_a_corriger_predit.code_systeme)
+    return codes
+
+
+def refresh_prediction_routing(anomaly):
+    """Refresh persisted routing metadata without deleting predictions or validation history."""
+    predictions = anomaly.predictions.select_related(
+        'regle__flux__systeme_source', 'regle__flux__systeme_destination',
+        'regle__attribut', 'systeme_a_corriger_predit',
+    ).all()
+    for prediction in predictions:
+        if prediction.source_prediction != PredictionMotif.Source.REGLE or not prediction.regle_id:
+            continue
+        codes = prediction_target_codes(prediction)
+        target = Systeme.objects.filter(code_systeme=codes[0], actif=True).first() if codes else None
+        explanation = dict(prediction.explication or {})
+        stored_codes = [str(code or '').strip().upper() for code in explanation.get('systemes_a_corriger') or []]
+        if stored_codes == codes and prediction.systeme_a_corriger_predit_id == (target.pk if target else None):
+            continue
+        explanation['systemes_a_corriger'] = codes
+        prediction.explication = explanation
+        prediction.systeme_a_corriger_predit = target
+        prediction.save(update_fields=['explication', 'systeme_a_corriger_predit'])
 
 
 def _learned_signature(anomaly):
@@ -200,8 +254,8 @@ def analyze_anomaly(anomaly):
     )
 
     # Toutes les règles métier effectivement violées sont conservées. Elles ne
-    # sont pas des alternatives entre elles : VILLE, TELEPHONE, ARTICLE, etc.
-    # peuvent constituer plusieurs causes simultanées du même blocage.
+    # sont pas des alternatives entre elles : plusieurs causes peuvent expliquer
+    # simultanément le même blocage de synchronisation.
     for rule in rules:
         if _rule_matches(rule, anomaly):
             target_codes = _correction_system_codes(rule, anomaly)
