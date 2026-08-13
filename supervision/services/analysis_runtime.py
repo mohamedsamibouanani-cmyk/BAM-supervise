@@ -98,8 +98,6 @@ def _mandatory_missing_issues(anomaly):
     rules = list(_required_target_rules(anomaly))
 
     for system, shipment in _source_shipments(anomaly):
-        # ARTICLE is structurally required by the import contract. If no service is
-        # attached to the shipment, the source cannot describe a complete parcel.
         services_all = list(shipment.services.select_related('service_ref').all())
         if not services_all:
             _append_issue(
@@ -130,8 +128,6 @@ def _mandatory_missing_issues(anomaly):
                     if service.service_ref_id == rule.service_ref_id
                     or service.code_service == rule.service_ref.code_service
                 ]
-            # If the required service itself is not present in the source, that is
-            # a SERVICE-level question, not a fabricated ENVOI cause.
             for service in services:
                 value = service.valeurs_attribut.filter(attribut=attribute).first()
                 if value is None or value.est_vide:
@@ -354,6 +350,22 @@ def _attribute_sync_rule(motif):
     return rule
 
 
+def _attribute_difference_rule(motif):
+    rule, _ = RegleMetier.objects.get_or_create(
+        code_regle='DYNAMIC_ATTRIBUT_DIFFERENT_A_CONFIRMER',
+        defaults={
+            'motif_suggere': motif,
+            'niveau_anomalie': Anomalie.Niveau.ATTRIBUT,
+            'type_controle': 'DIFFERENCE',
+            'expression_regle': {'type_ecart': Anomalie.TypeEcart.DIFFERENT},
+            'seuil_confiance': Decimal('1.0000'),
+            'priorite': 9991,
+            'actif': False,
+        },
+    )
+    return rule
+
+
 def _append_attribute_sync_constat(anomaly):
     motif = Motif.objects.filter(
         code_motif='ATTRIBUT_NON_SYNCHRONISE', actif=True
@@ -390,8 +402,49 @@ def _append_attribute_sync_constat(anomaly):
     )
 
 
+def _append_attribute_difference_constat(anomaly):
+    motif = Motif.objects.filter(code_motif='ATTRIBUT_DIFFERENT', actif=True).first()
+    if motif is None:
+        return
+    evidence = []
+    for detail in anomaly.details.select_related('systeme').order_by('systeme__ordre_comparaison'):
+        evidence.append({
+            'systeme': detail.systeme.code_systeme,
+            'champ': anomaly.attribut.code_attribut if anomaly.attribut_id else 'ATTRIBUT',
+            'constat': f'Valeur observée : {detail.valeur_brute or "—"}',
+        })
+    PredictionMotif.objects.create(
+        anomalie=anomaly,
+        source_prediction=PredictionMotif.Source.REGLE,
+        regle=_attribute_difference_rule(motif),
+        motif=motif,
+        systeme_a_corriger_predit=None,
+        rang=1,
+        score_confiance=Decimal('1.0000'),
+        explication={
+            'diagnostic_dynamique': True,
+            'attribut_analyse': anomaly.attribut.code_attribut if anomaly.attribut_id else '',
+            'indices': evidence,
+            'message': 'Valeurs différentes entre les systèmes — système à corriger à confirmer par le superviseur.',
+            'systemes_a_corriger': [],
+            'role_diagnostic': 'CONSTAT_ATTRIBUT_DIFFERENT',
+            'systeme_a_corriger_a_confirmer': True,
+        },
+    )
+
+
+def _has_attribute_format_cause(anomaly):
+    for prediction in anomaly.predictions.select_related('motif').all():
+        if prediction.motif.code_motif in {
+            'FORMAT_MONTANT_INCOMPATIBLE',
+            'FORMAT_ATTRIBUT_INCOMPATIBLE',
+        }:
+            return True
+    return False
+
+
 def analyze_anomaly(anomaly):
-    """Apply strict N1 analysis and keep N2/N3 protections."""
+    """Apply strict N1 analysis and deterministic N2/N3 routing rules."""
     if anomaly.niveau == Anomalie.Niveau.ENVOI:
         _analyze_envoi_strict(anomaly)
         return
@@ -412,10 +465,30 @@ def analyze_anomaly(anomaly):
     if invalid_ids:
         anomaly.predictions.filter(pk__in=invalid_ids).delete()
 
+    # A real format defect has priority: the source carrying the invalid format
+    # is the system to correct after supervisor validation.
+    if _has_attribute_format_cause(anomaly):
+        non_format_ids = [
+            prediction.pk
+            for prediction in anomaly.predictions.select_related('motif').all()
+            if prediction.motif.code_motif not in {
+                'FORMAT_MONTANT_INCOMPATIBLE',
+                'FORMAT_ATTRIBUT_INCOMPATIBLE',
+            }
+        ]
+        if non_format_ids:
+            anomaly.predictions.filter(pk__in=non_format_ids).delete()
+    elif anomaly.type_ecart == Anomalie.TypeEcart.DIFFERENT:
+        # No business rule has yet been approved to decide which different
+        # value is authoritative. Never infer that the minority value is wrong.
+        anomaly.predictions.all().delete()
+        _append_attribute_difference_constat(anomaly)
+    elif not anomaly.predictions.exists():
+        # ABSENT without a demonstrated format cause: notify the system where
+        # the attribute is missing, after supervisor validation.
+        _append_attribute_sync_constat(anomaly)
+
     for rank, prediction in enumerate(anomaly.predictions.order_by('rang', 'pk'), start=1):
         if prediction.rang != rank:
             prediction.rang = rank
             prediction.save(update_fields=['rang'])
-
-    if not anomaly.predictions.exists():
-        _append_attribute_sync_constat(anomaly)
