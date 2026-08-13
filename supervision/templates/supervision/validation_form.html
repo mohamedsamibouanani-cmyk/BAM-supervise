@@ -31,9 +31,11 @@
           <div class="validation-panel-head">
             <div>
               <span class="validation-kicker">{% if anomaly.niveau == 'SERVICE' %}Synchronisation{% else %}Diagnostic{% endif %}</span>
-              <h2 id="validation-diagnostic-title">{% if anomaly.niveau == 'SERVICE' %}Service non synchronisé{% else %}Causes détectées{% endif %}</h2>
+              <h2 id="validation-diagnostic-title">{% if anomaly.niveau == 'SERVICE' %}Service non synchronisé{% elif anomaly.niveau == 'ATTRIBUT' %}Diagnostic de synchronisation{% else %}Causes détectées{% endif %}</h2>
               {% if anomaly.niveau == 'SERVICE' %}
                 <p>Confirmez simplement le système où le service manque.</p>
+              {% elif anomaly.niveau == 'ATTRIBUT' %}
+                <p>Confirmez le constat de synchronisation ou une cause réellement démontrée.</p>
               {% else %}
                 <p>Gardez uniquement les causes que vous confirmez.</p>
               {% endif %}
@@ -44,7 +46,7 @@
                 <button class="validation-tool-link" type="button" id="selectAllCauses">Tout sélectionner</button>
                 <button class="validation-tool-link is-muted" type="button" id="clearCauses">Effacer</button>
               {% endif %}
-              {% if anomaly.predictions.count %}<span class="validation-count-badge" aria-label="{{ anomaly.predictions.count }} causes proposées">{{ anomaly.predictions.count }}</span>{% endif %}
+              {% if anomaly.predictions.count %}<span class="validation-count-badge" aria-label="{{ anomaly.predictions.count }} diagnostic(s) proposé(s)">{{ anomaly.predictions.count }}</span>{% endif %}
             </div>
             {% endif %}
           </div>
@@ -58,7 +60,7 @@
             </div>
           {% else %}
             <fieldset class="validation-choice-fieldset">
-              <legend class="visually-hidden">Causes à confirmer</legend>
+              <legend class="visually-hidden">Diagnostic à confirmer</legend>
               <div class="validation-cause-options">{{ form.predictions }}</div>
             </fieldset>
             {% if form.predictions.errors %}<div class="text-danger small mt-2" role="alert">{{ form.predictions.errors }}</div>{% endif %}
@@ -83,7 +85,7 @@
           </fieldset>
           {% if form.decision.errors %}<div class="text-danger small mt-2" role="alert">{{ form.decision.errors }}</div>{% endif %}
           <p class="validation-decision-help" id="decisionHelp">
-            {% if anomaly.niveau == 'SERVICE' %}Le constat sera validé sans motif métier.{% else %}Les causes sélectionnées seront validées ensemble.{% endif %}
+            {% if anomaly.niveau == 'SERVICE' %}Le constat sera validé sans motif métier.{% elif anomaly.niveau == 'ATTRIBUT' %}Le diagnostic de synchronisation sélectionné sera validé.{% else %}Les causes sélectionnées seront validées ensemble.{% endif %}
           </p>
         </section>
       </div>
@@ -93,7 +95,7 @@
           <div>
             <span class="validation-kicker">Précision</span>
             <h2 id="adjustmentTitle">{% if anomaly.niveau == 'SERVICE' %}Ajuster le système concerné{% else %}Ajuster le diagnostic{% endif %}</h2>
-            <p id="adjustmentHint">{% if anomaly.niveau == 'SERVICE' %}Choisissez uniquement le système concerné.{% else %}Définissez la cause et le système responsable.{% endif %}</p>
+            <p id="adjustmentHint">{% if anomaly.niveau == 'SERVICE' %}Choisissez uniquement le système concerné.{% else %}Définissez la cause et le système responsable uniquement si vous disposez d’un élément métier fiable.{% endif %}</p>
           </div>
         </div>
 
