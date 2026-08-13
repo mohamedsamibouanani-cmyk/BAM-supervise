@@ -76,7 +76,7 @@ def _target_systems(validation):
     systems = [systems_by_code[code] for code in codes if code in systems_by_code]
     if not systems:
         raise RoutingError(
-            'Aucun système responsable n’a été confirmé par les preuves du dossier. '
+            'Aucun système responsable ou source n’a été confirmé par le superviseur. '
             'Révisez le diagnostic avant d’envoyer une notification.'
         )
     return systems
@@ -110,11 +110,14 @@ def _causes_for_system(validation, system):
         causes.append({
             'validation': item,
             'motif': item.motif_final,
+            'label': explanation.get('message') or item.motif_final.libelle,
             'field': field,
             'constat': ' ; '.join(constats),
             'score': (
                 float(item.prediction_retenue.score_confiance) * 100
-                if item.prediction_retenue_id else None
+                if item.prediction_retenue_id
+                and explanation.get('role_diagnostic') != 'MOTIF_NON_IDENTIFIABLE'
+                else None
             ),
         })
     return causes
@@ -161,10 +164,41 @@ def _build_service_email(validation, system):
     return subject, body
 
 
+def _build_envoi_retry_email(validation, system):
+    """Build the retry request only after the supervisor has validated the source."""
+    anomaly = validation.anomalie
+    observed = anomaly.systeme_ecart.code_systeme if anomaly.systeme_ecart_id else '-'
+    subject = (
+        f'[BAM Supervise][{system.code_systeme}] RELANCE ENVOI - {anomaly.code_envoi}'
+    )
+    body = (
+        f'Bonjour,\n\n'
+        f'Après validation du superviseur, BAM Supervise confirme que l’envoi '
+        f'{anomaly.code_envoi} n’est pas synchronisé dans {observed}.\n\n'
+        f'Le moteur a analysé les champs obligatoires puis les formats disponibles '
+        f'sans identifier de cause exploitable.\n'
+        f'Motif validé : Motif non identifiable\n'
+        f'Système source à relancer : {system.code_systeme}\n\n'
+        f'Merci de relancer l’envoi / la synchronisation depuis {system.code_systeme} '
+        f'et de vérifier sa prise en compte dans le système cible.\n'
+        f'BAM Supervise contrôlera automatiquement le résultat lors de la prochaine campagne : '
+        f'l’anomalie sera marquée résolue si l’envoi apparaît, sinon persistante.\n\n'
+        f'Commentaire du superviseur : {validation.commentaire or "-"}\n\n'
+        f'BAM Supervise'
+    )
+    return subject, body
+
+
 def build_email(validation, group, system):
     anomaly = validation.anomalie
     if anomaly.niveau == Anomalie.Niveau.SERVICE:
         return _build_service_email(validation, system)
+
+    if (
+        anomaly.niveau == Anomalie.Niveau.ENVOI
+        and validation.motif_final.code_motif == 'MOTIF_INCONNU'
+    ):
+        return _build_envoi_retry_email(validation, system)
 
     if anomaly.niveau == Anomalie.Niveau.ENVOI:
         element = f'Envoi {anomaly.code_envoi}'
@@ -177,6 +211,7 @@ def build_email(validation, group, system):
     causes = _causes_for_system(validation, system)
     primary = causes[0] if causes else {
         'motif': validation.motif_final,
+        'label': validation.motif_final.libelle,
         'field': validation.motif_final.champ_typique or '-',
         'constat': '',
         'score': None,
@@ -197,14 +232,14 @@ def build_email(validation, group, system):
 
     cause_lines = []
     for cause in causes:
-        line = f'- {cause["motif"].libelle} | champ : {cause["field"]}'
+        line = f'- {cause["label"]} | champ : {cause["field"]}'
         if cause['constat']:
             line += f' | constat : {cause["constat"]}'
         if cause['score'] is not None:
             line += f' | confiance : {cause["score"]:.0f}%'
         cause_lines.append(line)
     if not cause_lines:
-        cause_lines.append(f'- {primary["motif"].libelle} | champ : {primary["field"]}')
+        cause_lines.append(f'- {primary["label"]} | champ : {primary["field"]}')
 
     body = (
         f'Bonjour,\n\n'
@@ -214,7 +249,7 @@ def build_email(validation, group, system):
         f'{gap_description}\n'
         f'Service : {anomaly.code_service or "-"}\n'
         f'Attribut : {anomaly.attribut.code_attribut if anomaly.attribut_id else "-"}\n'
-        f'Motif validé : {primary["motif"].libelle}\n'
+        f'Motif validé : {primary["label"]}\n'
         f'Champ source à vérifier : {primary["field"]}\n'
         f'Système à corriger : {system.code_systeme}\n'
         f'Système responsable de la correction : {system.code_systeme}\n\n'
@@ -331,7 +366,7 @@ def send_validation_email(validation):
             source_evenement='MAIL',
             superviseur=validation.superviseur,
             commentaire=(
-                'Notifications envoyées aux systèmes responsables : '
+                'Notifications envoyées aux systèmes responsables ou sources validés : '
                 + ', '.join(notification.groupe.systeme.code_systeme for notification in sent_notifications)
                 + '.'
             ),
