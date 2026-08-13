@@ -150,6 +150,152 @@ def route_group(validation, system):
     raise RoutingError(f'Aucun groupe responsable configuré pour le système {system.code_systeme}.')
 
 
+def _is_envoi_mandatory_validation(validation):
+    if validation.anomalie.niveau != Anomalie.Niveau.ENVOI:
+        return False
+    for item in _active_validations(validation):
+        if item.motif_final.code_motif == 'CHAMP_OBLIGATOIRE_ENVOI_ABSENT':
+            return True
+        if item.prediction_retenue_id:
+            role = (item.prediction_retenue.explication or {}).get('role_diagnostic')
+            if role == 'CHAMP_OBLIGATOIRE_ABSENT':
+                return True
+    return False
+
+
+def _mandatory_envoi_fields_for_system(validation, system):
+    fields = []
+    seen = set()
+    for item in _active_validations(validation):
+        if system.code_systeme not in _validation_target_codes(item):
+            continue
+        explanation = item.prediction_retenue.explication or {} if item.prediction_retenue_id else {}
+        role = explanation.get('role_diagnostic')
+        if (
+            item.motif_final.code_motif != 'CHAMP_OBLIGATOIRE_ENVOI_ABSENT'
+            and role != 'CHAMP_OBLIGATOIRE_ABSENT'
+        ):
+            continue
+        for index in explanation.get('indices') or []:
+            if str(index.get('systeme') or '').strip().upper() != system.code_systeme:
+                continue
+            field = str(index.get('champ') or explanation.get('attribut_analyse') or '').strip()
+            service = str(index.get('service') or '').strip()
+            key = (field, service)
+            if field and key not in seen:
+                seen.add(key)
+                fields.append({'champ': field, 'service': service})
+        fallback_field = str(explanation.get('attribut_analyse') or '').strip()
+        if fallback_field and not any(row['champ'] == fallback_field for row in fields):
+            fields.append({'champ': fallback_field, 'service': ''})
+    return fields
+
+
+def _build_envoi_mandatory_email(validation, system):
+    anomaly = validation.anomalie
+    observed = anomaly.systeme_ecart.code_systeme if anomaly.systeme_ecart_id else '-'
+    missing = _mandatory_envoi_fields_for_system(validation, system)
+    field_lines = []
+    for item in missing:
+        suffix = f' | service ARTICLE={item["service"]}' if item['service'] else ''
+        field_lines.append(f'- {item["champ"]}{suffix}')
+
+    subject = (
+        f'[BAM Supervise][{system.code_systeme}] CHAMP OBLIGATOIRE À RENSEIGNER - '
+        f'{anomaly.code_envoi}'
+    )
+    body = (
+        f'Bonjour,\n\n'
+        f'Après validation du superviseur, BAM Supervise confirme que l’envoi '
+        f'{anomaly.code_envoi} n’est pas synchronisé dans {observed}.\n\n'
+        f'Motif de non-synchronisation validé : champ obligatoire non rempli.\n'
+        f'Système source à corriger : {system.code_systeme}\n'
+        f'Code envoi : {anomaly.code_envoi}\n\n'
+        f'Champ(s) obligatoire(s) à renseigner dans le système source :\n'
+        + ('\n'.join(field_lines) if field_lines else '- champ obligatoire à vérifier')
+        + '\n\n'
+        f'Merci de renseigner ce ou ces champs dans {system.code_systeme}, puis de '
+        f'valider à nouveau l’envoi {anomaly.code_envoi} afin de relancer sa synchronisation.\n'
+        f'BAM Supervise contrôlera le résultat lors de la prochaine campagne.\n\n'
+        f'Commentaire du superviseur : {validation.commentaire or "-"}\n\n'
+        f'BAM Supervise'
+    )
+    return subject, body
+
+
+def _snapshot_value_text(value):
+    if value is None or value.est_vide:
+        return '—'
+    raw = value.valeur_brute
+    if raw in (None, ''):
+        return '—'
+    if value.attribut.sensible:
+        return decrypt_sensitive(raw)
+    return str(raw).strip() or '—'
+
+
+def _envoi_reentry_lines(anomaly, system):
+    link = anomaly.campagne.imports.select_related('fichier_import').filter(
+        systeme=system
+    ).first()
+    if not link:
+        return []
+    shipment = link.fichier_import.envois.filter(code_envoi=anomaly.code_envoi).first()
+    if not shipment:
+        return []
+
+    lines = [
+        f'NUM_COMMANDE = {shipment.num_commande or "—"}',
+        f'CODE_ENVOI = {shipment.code_envoi}',
+        f'ORG_COMMERCIALE = {shipment.org_commerciale or "—"}',
+        f'DATE_COMMANDE = {shipment.date_commande.isoformat() if shipment.date_commande else "—"}',
+    ]
+
+    for value in shipment.valeurs_attribut.select_related('attribut').order_by('attribut__code_attribut'):
+        lines.append(f'{value.attribut.code_attribut} = {_snapshot_value_text(value)}')
+
+    services = shipment.services.order_by('code_service', 'numero_occurrence')
+    for index, service in enumerate(services, start=1):
+        lines.extend([
+            '',
+            f'SERVICE {index}',
+            f'ARTICLE = {service.code_service}',
+            f'DES_ARTICLE = {service.libelle_service or "—"}',
+        ])
+        for value in service.valeurs_attribut.select_related('attribut').order_by('attribut__code_attribut'):
+            lines.append(f'{value.attribut.code_attribut} = {_snapshot_value_text(value)}')
+    return lines
+
+
+def _build_envoi_retry_email(validation, system):
+    anomaly = validation.anomalie
+    observed = anomaly.systeme_ecart.code_systeme if anomaly.systeme_ecart_id else '-'
+    reentry_lines = _envoi_reentry_lines(anomaly, system)
+    subject = (
+        f'[BAM Supervise][{system.code_systeme}] RESSAISIE ENVOI - {anomaly.code_envoi}'
+    )
+    body = (
+        f'Bonjour,\n\n'
+        f'Après validation du superviseur, BAM Supervise confirme que l’envoi '
+        f'{anomaly.code_envoi} n’est pas synchronisé dans {observed}.\n\n'
+        f'Les champs obligatoires disponibles ont été contrôlés et aucune cause '
+        f'suffisamment identifiable n’explique la non-synchronisation.\n'
+        f'Motif validé : Motif non identifiable\n'
+        f'Système source confirmé : {system.code_systeme}\n\n'
+        f'Merci de ressaisir complètement l’envoi CODE_ENVOI={anomaly.code_envoi} '
+        f'dans {system.code_systeme}, puis de le valider à nouveau afin de relancer '
+        f'la synchronisation.\n\n'
+        f'Champs à ressaisir :\n'
+        + ('\n'.join(reentry_lines) if reentry_lines else '- aucune donnée source disponible')
+        + '\n\n'
+        f'BAM Supervise contrôlera automatiquement le résultat lors de la prochaine campagne : '
+        f'l’anomalie sera marquée résolue si l’envoi apparaît, sinon persistante.\n\n'
+        f'Commentaire du superviseur : {validation.commentaire or "-"}\n\n'
+        f'BAM Supervise'
+    )
+    return subject, body
+
+
 def _service_source_observations(anomaly, target_system):
     observations = []
     links = anomaly.campagne.imports.select_related('systeme', 'fichier_import').order_by(
@@ -214,30 +360,6 @@ def _build_service_email(validation, system):
         + '\n\n'
         f'Aucun motif métier n’est attribué automatiquement au niveau SERVICE.\n'
         f'La résolution sera contrôlée lors de la prochaine campagne.\n\n'
-        f'Commentaire du superviseur : {validation.commentaire or "-"}\n\n'
-        f'BAM Supervise'
-    )
-    return subject, body
-
-
-def _build_envoi_retry_email(validation, system):
-    anomaly = validation.anomalie
-    observed = anomaly.systeme_ecart.code_systeme if anomaly.systeme_ecart_id else '-'
-    subject = (
-        f'[BAM Supervise][{system.code_systeme}] RELANCE ENVOI - {anomaly.code_envoi}'
-    )
-    body = (
-        f'Bonjour,\n\n'
-        f'Après validation du superviseur, BAM Supervise confirme que l’envoi '
-        f'{anomaly.code_envoi} n’est pas synchronisé dans {observed}.\n\n'
-        f'Le moteur a analysé les champs obligatoires puis les formats disponibles '
-        f'sans identifier de cause exploitable.\n'
-        f'Motif validé : Motif non identifiable\n'
-        f'Système source à relancer : {system.code_systeme}\n\n'
-        f'Merci de relancer l’envoi / la synchronisation depuis {system.code_systeme} '
-        f'et de vérifier sa prise en compte dans le système cible.\n'
-        f'BAM Supervise contrôlera automatiquement le résultat lors de la prochaine campagne : '
-        f'l’anomalie sera marquée résolue si l’envoi apparaît, sinon persistante.\n\n'
         f'Commentaire du superviseur : {validation.commentaire or "-"}\n\n'
         f'BAM Supervise'
     )
@@ -477,6 +599,9 @@ def build_email(validation, group, system):
         and validation.motif_final.code_motif == 'MOTIF_INCONNU'
     ):
         return _build_envoi_retry_email(validation, system)
+
+    if _is_envoi_mandatory_validation(validation):
+        return _build_envoi_mandatory_email(validation, system)
 
     if _is_attribute_format_validation(validation):
         return _build_attribute_format_email(validation, system)
