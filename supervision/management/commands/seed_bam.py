@@ -46,6 +46,8 @@ class Command(BaseCommand):
         motif_data = [
             ('VILLE_MANQUANTE', 'Ville obligatoire manquante', 'ENVOI', 'DONNEE', 'VILLE'),
             ('TELEPHONE_MANQUANT', 'Téléphone obligatoire manquant', 'ENVOI', 'DONNEE', 'TELEPHONE'),
+            ('CHAMP_OBLIGATOIRE_ENVOI_ABSENT', 'Champ obligatoire absent', 'ENVOI', 'DONNEE', ''),
+            ('FORMAT_CHAMP_ENVOI_NON_RESPECTE', 'Format de champ non respecté', 'ENVOI', 'FORMAT', ''),
             ('FORMAT_TELEPHONE_INVALIDE', 'Format du téléphone invalide', 'ENVOI', 'FORMAT', 'TELEPHONE'),
             ('FORMAT_SOURCE_INCOMPATIBLE', 'Format source potentiellement incompatible', 'ENVOI', 'FORMAT', ''),
             ('FORMAT_MONTANT_INCOMPATIBLE', 'Format de montant incompatible', 'ATTRIBUT', 'FORMAT', 'MONTANT'),
@@ -55,11 +57,9 @@ class Command(BaseCommand):
             ('CHAMP_OBLIGATOIRE_VIDE', 'Champ obligatoire vide', 'ATTRIBUT', 'DONNEE', ''),
             ('ATTRIBUT_NON_SYNCHRONISE', 'Attribut non synchronisé', 'ATTRIBUT', 'SYNCHRONISATION', ''),
             ('ATTRIBUT_DIFFERENT', 'Valeur d’attribut non synchronisée', 'ATTRIBUT', 'SYNCHRONISATION', ''),
-            # SERVICE_ABSENT reste une classification technique interne nécessaire
-            # au routage/à l’audit. L’interface ne la présente pas comme un motif.
             ('SERVICE_ABSENT', 'Service absent / non synchronisé', 'SERVICE', 'SYSTEME', 'ARTICLE'),
             ('SERVICE_INCONNU', 'Service non reconnu', 'SERVICE', 'REGLE', 'ARTICLE'),
-            ('MOTIF_INCONNU', 'Motif non identifié', 'ENVOI', 'TECHNIQUE', ''),
+            ('MOTIF_INCONNU', 'Motif non identifiable', 'ENVOI', 'TECHNIQUE', ''),
         ]
         motifs = {}
         for code, label, level, category, field in motif_data:
@@ -71,8 +71,9 @@ class Command(BaseCommand):
                 },
             )
 
-        # Niveau ENVOI : les règles confirmées complètent l'analyse dynamique de
-        # tous les champs importés. La comparaison N3 gère elle-même les attributs.
+        # Ces règles historiques restent disponibles pour les anciens dossiers,
+        # mais le moteur N1 courant applique désormais un ordre strict :
+        # obligatoire absent -> format -> motif non identifiable.
         for col in ('VILLE', 'VILLE_DESTINATION'):
             RegleMetier.objects.update_or_create(
                 code_regle=f'ENVOI_VILLE_VIDE_{col}',
@@ -126,7 +127,6 @@ class Command(BaseCommand):
                 },
             )
 
-        # Nettoyage des anciennes règles devenues contraires au modèle actuel.
         RegleMetier.objects.filter(niveau_anomalie='SERVICE').update(actif=False)
         RegleMetier.objects.filter(
             niveau_anomalie='ATTRIBUT', type_controle='VIDE'
@@ -135,6 +135,10 @@ class Command(BaseCommand):
         for system in systems.values():
             group = GroupeResponsable.objects.get(systeme=system, nom_groupe=f'Groupe {system.code_systeme}')
             for motif in motifs.values():
-                RegleAffectation.objects.get_or_create(systeme_a_corriger=system, motif=motif, defaults={'groupe': group})
+                RegleAffectation.objects.get_or_create(
+                    systeme_a_corriger=system,
+                    motif=motif,
+                    defaults={'groupe': group},
+                )
 
         self.stdout.write(self.style.SUCCESS('Référentiels BAM initialisés.'))
