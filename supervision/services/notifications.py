@@ -676,72 +676,93 @@ def build_email(validation, group, system):
     return subject, body
 
 
-def _send_one(validation, system):
-    group = route_group(validation, system)
+def _personalize_recipient_body(body, recipient_name):
+    """Personalize only the greeting; the validated business content stays identical."""
+    name = str(recipient_name or '').strip() or 'collaborateur'
+    generic_greeting = 'Bonjour,\n\n'
+    personalized_greeting = f'Bonjour {name},\n\n'
+    if body.startswith(generic_greeting):
+        return personalized_greeting + body[len(generic_greeting):]
+    return personalized_greeting + body
 
+
+def _recipient_specs(group, only_emails=None):
     contacts = list(group.contacts.all().order_by('id'))
-    emails = []
+    restrict = only_emails is not None
+    wanted = {str(email).strip().lower() for email in (only_emails or []) if str(email).strip()}
+    specs = []
+    seen = set()
+
     for contact in contacts:
-        if contact.email and contact.email not in emails:
-            emails.append(contact.email)
-    if group.email_collectif and group.email_collectif not in emails:
-        emails.append(group.email_collectif)
-    if not emails:
-        raise RoutingError(f'Le groupe responsable de {system.code_systeme} ne possède aucune adresse e-mail enregistrée.')
+        email = str(contact.email or '').strip()
+        key = email.lower()
+        if not email or key in seen or (restrict and key not in wanted):
+            continue
+        seen.add(key)
+        specs.append({
+            'contact': contact,
+            'nom': contact.nom_complet or email,
+            'email': email,
+            'collectif': False,
+        })
+
+    collective = str(group.email_collectif or '').strip()
+    collective_key = collective.lower()
+    if (
+        collective
+        and collective_key not in seen
+        and (not restrict or collective_key in wanted)
+    ):
+        specs.append({
+            'contact': None,
+            'nom': group.nom_groupe,
+            'email': collective,
+            'collectif': True,
+        })
+    return specs
+
+
+def _send_one(validation, system, only_emails=None):
+    group = route_group(validation, system)
+    specs = _recipient_specs(group, only_emails=only_emails)
+    if not specs:
+        if only_emails is not None:
+            raise RoutingError(
+                f'Aucun des destinataires en échec n’est encore enregistré dans le groupe '
+                f'responsable de {system.code_systeme}.'
+            )
+        raise RoutingError(
+            f'Le groupe responsable de {system.code_systeme} ne possède aucune adresse e-mail enregistrée.'
+        )
 
     subject, body = build_email(validation, group, system)
+    if len(specs) == 1:
+        stored_name = (
+            f'équipe {specs[0]["nom"]}' if specs[0]['collectif'] else specs[0]['nom']
+        )
+    else:
+        stored_name = '[Nom du collaborateur]'
+    stored_body = _personalize_recipient_body(body, stored_name)
 
     with transaction.atomic():
         notification = Notification.objects.create(
             validation=validation,
             groupe=group,
             objet=subject,
-            message=body,
+            message=stored_body,
         )
         rows = []
-        snapshot_emails = set()
-        for contact in contacts:
-            if not contact.email or contact.email in snapshot_emails:
-                continue
-            snapshot_emails.add(contact.email)
+        for spec in specs:
             rows.append(NotificationDestinataire.objects.create(
                 notification=notification,
-                contact=contact,
-                nom_snapshot=contact.nom_complet,
-                email_snapshot=contact.email,
-            ))
-        if group.email_collectif and group.email_collectif not in snapshot_emails:
-            rows.append(NotificationDestinataire.objects.create(
-                notification=notification,
-                nom_snapshot=group.nom_groupe,
-                email_snapshot=group.email_collectif,
+                contact=spec['contact'],
+                nom_snapshot=spec['nom'],
+                email_snapshot=spec['email'],
             ))
 
     notification.nb_tentatives += 1
     try:
         _ensure_real_delivery_backend()
-        reply_to = [settings.EMAIL_REPLY_TO] if settings.EMAIL_REPLY_TO else None
-        sent = EmailMessage(
-            subject=subject,
-            body=body,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            to=emails,
-            reply_to=reply_to,
-        ).send(fail_silently=False)
-        if sent != 1:
-            raise RuntimeError("Le backend e-mail n'a pas confirmé l'envoi du message.")
-
-        now = timezone.now()
-        with transaction.atomic():
-            notification.statut = Notification.Statut.ENVOYEE
-            notification.envoyee_le = now
-            notification.erreur = ''
-            notification.save(update_fields=['nb_tentatives', 'statut', 'envoyee_le', 'erreur'])
-            for row in rows:
-                row.statut_livraison = NotificationDestinataire.Statut.ENVOYE
-                row.envoyee_le = now
-                row.save(update_fields=['statut_livraison', 'envoyee_le'])
-        return notification
     except Exception as exc:
         error_message = _delivery_error_message(exc)
         with transaction.atomic():
@@ -753,6 +774,54 @@ def _send_one(validation, system):
                 row.erreur = error_message[:500]
                 row.save(update_fields=['statut_livraison', 'erreur'])
         raise RoutingError(error_message) from exc
+
+    reply_to = [settings.EMAIL_REPLY_TO] if settings.EMAIL_REPLY_TO else None
+    failures = []
+    sent_rows = []
+
+    for row in rows:
+        recipient_name = (
+            row.nom_snapshot if row.contact_id else f'équipe {row.nom_snapshot}'
+        )
+        personalized_body = _personalize_recipient_body(body, recipient_name)
+        try:
+            sent = EmailMessage(
+                subject=subject,
+                body=personalized_body,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=[row.email_snapshot],
+                reply_to=reply_to,
+            ).send(fail_silently=False)
+            if sent != 1:
+                raise RuntimeError("Le backend e-mail n'a pas confirmé l'envoi du message.")
+
+            now = timezone.now()
+            row.statut_livraison = NotificationDestinataire.Statut.ENVOYE
+            row.envoyee_le = now
+            row.erreur = ''
+            row.save(update_fields=['statut_livraison', 'envoyee_le', 'erreur'])
+            sent_rows.append(row)
+        except Exception as exc:
+            error_message = _delivery_error_message(exc)
+            row.statut_livraison = NotificationDestinataire.Statut.ECHEC
+            row.erreur = error_message[:500]
+            row.save(update_fields=['statut_livraison', 'erreur'])
+            failures.append((row.email_snapshot, error_message))
+
+    if failures:
+        details = ' ; '.join(f'{email}: {message}' for email, message in failures)
+        notification.statut = Notification.Statut.ECHEC
+        notification.erreur = (
+            f'{len(failures)} destinataire(s) en échec sur {len(rows)} : {details}'
+        )[:2000]
+        notification.save(update_fields=['nb_tentatives', 'statut', 'erreur'])
+        raise RoutingError(notification.erreur)
+
+    notification.statut = Notification.Statut.ENVOYEE
+    notification.envoyee_le = max(row.envoyee_le for row in sent_rows)
+    notification.erreur = ''
+    notification.save(update_fields=['nb_tentatives', 'statut', 'envoyee_le', 'erreur'])
+    return notification
 
 
 def send_validation_email(validation):
