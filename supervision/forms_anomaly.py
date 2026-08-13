@@ -4,10 +4,10 @@ from .models import Motif, PredictionMotif, Systeme
 
 
 class MultiCauseValidationForm(forms.Form):
-    """Validation métier d'un dossier avec plusieurs causes simultanées.
+    """Validation d'un dossier de synchronisation.
 
-    Les constats issus de règles métier sont indépendants : plusieurs causes
-    peuvent donc être retenues ensemble pour un même blocage de synchronisation.
+    ENVOI et ATTRIBUT peuvent exposer plusieurs causes simultanées. SERVICE reste
+    volontairement un constat de désynchronisation sans motif métier à choisir.
     """
 
     predictions = forms.ModelMultipleChoiceField(
@@ -70,7 +70,18 @@ class MultiCauseValidationForm(forms.Form):
         self.fields['predictions'].queryset = qs
         self.fields['prediction'].queryset = qs
 
+        if anomaly.niveau == anomaly.Niveau.SERVICE:
+            self.fields['decision'].choices = [
+                ('ACCEPTE', 'Confirmer'),
+                ('MODIFIE', 'Changer le système concerné'),
+                ('INCONNU', 'À investiguer'),
+            ]
+
         def label_for(prediction):
+            if anomaly.niveau == anomaly.Niveau.SERVICE:
+                targets = (prediction.explication or {}).get('systemes_a_corriger') or []
+                suffix = f' · absent dans {", ".join(targets)}' if targets else ''
+                return f'Service {anomaly.code_service} non synchronisé{suffix}'
             score = float(prediction.score_confiance) * 100
             return f'{prediction.motif.libelle} · {score:.0f}%'
 
@@ -104,8 +115,49 @@ class MultiCauseValidationForm(forms.Form):
                     if target:
                         self.fields['systeme_a_corriger_final'].initial = target.pk
 
+    def _clean_service(self, cleaned):
+        decision = cleaned.get('decision')
+        prediction = cleaned.get('prediction') or self.anomaly.predictions.order_by('rang').first()
+        system = cleaned.get('systeme_a_corriger_final')
+
+        if decision == 'ACCEPTE':
+            if prediction is None:
+                raise forms.ValidationError('Aucun constat de désynchronisation n’est disponible.')
+            cleaned['prediction'] = prediction
+            cleaned['predictions_selectionnees'] = [prediction]
+            cleaned['motif_final'] = prediction.motif  # classification technique interne
+            if prediction.systeme_a_corriger_predit_id:
+                cleaned['systeme_a_corriger_final'] = prediction.systeme_a_corriger_predit
+            elif not system:
+                codes = (prediction.explication or {}).get('systemes_a_corriger') or []
+                if codes:
+                    cleaned['systeme_a_corriger_final'] = Systeme.objects.filter(
+                        code_systeme=codes[0], actif=True
+                    ).first()
+        elif decision == 'MODIFIE':
+            cleaned['predictions_selectionnees'] = []
+            technical = Motif.objects.filter(code_motif='SERVICE_ABSENT', actif=True).first()
+            if technical is None:
+                raise forms.ValidationError('Le référentiel technique SERVICE_ABSENT doit être initialisé.')
+            cleaned['motif_final'] = technical
+            cleaned['nouveau_motif'] = ''
+        else:  # INCONNU
+            cleaned['predictions_selectionnees'] = []
+            unknown = Motif.objects.filter(code_motif='MOTIF_INCONNU', actif=True).first()
+            if unknown is None:
+                raise forms.ValidationError('Le motif technique MOTIF_INCONNU doit être initialisé.')
+            cleaned['motif_final'] = unknown
+            cleaned['nouveau_motif'] = ''
+
+        if not cleaned.get('systeme_a_corriger_final'):
+            raise forms.ValidationError('Sélectionnez le système concerné.')
+        return cleaned
+
     def clean(self):
         cleaned = super().clean()
+        if self.anomaly.niveau == self.anomaly.Niveau.SERVICE:
+            return self._clean_service(cleaned)
+
         decision = cleaned.get('decision')
         selected = sorted(list(cleaned.get('predictions') or []), key=lambda p: p.rang)
         prediction = cleaned.get('prediction')
@@ -138,8 +190,6 @@ class MultiCauseValidationForm(forms.Form):
                         if target:
                             cleaned['systeme_a_corriger_final'] = target
             elif motif and cleaned.get('systeme_a_corriger_final'):
-                # Compatibilité avec les anciens workflows qui validaient un motif
-                # explicite alors qu'aucune prédiction n'avait encore été créée.
                 cleaned['prediction'] = None
                 cleaned['predictions_selectionnees'] = []
             else:
