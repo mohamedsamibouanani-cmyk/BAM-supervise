@@ -27,17 +27,19 @@ class AttributeMissingFillNotificationTests(TestCase):
             system.code_systeme: system
             for system in Systeme.objects.filter(code_systeme__in=['SMI', 'SICOM', 'SIBO'])
         }
-        group = GroupeResponsable.objects.filter(
-            systeme=self.systems['SIBO'], actif=True
-        ).order_by('id').first()
-        self.assertIsNotNone(group)
-        ContactGroupe.objects.create(
-            groupe=group,
-            nom_complet='Collaborateur SIBO',
-            email='collaborateur.sibo@bam-supervise.ma',
-        )
+        for code in ('SMI', 'SIBO'):
+            group = GroupeResponsable.objects.filter(
+                systeme=self.systems[code], actif=True
+            ).order_by('id').first()
+            self.assertIsNotNone(group)
+            ContactGroupe.objects.create(
+                groupe=group,
+                nom_complet=f'Collaborateur {code}',
+                email=f'collaborateur.{code.lower()}@bam-supervise.ma',
+            )
 
-    def _campaign_with_missing_attribute(self, key, source_values):
+    def _campaign_with_missing_attribute(self, key, source_values, invalid_systems=None):
+        invalid_systems = set(invalid_systems or [])
         campaign = CampagneSupervision.objects.create(superviseur=self.user)
         services = {}
         for code in ('SMI', 'SICOM', 'SIBO'):
@@ -80,7 +82,7 @@ class AttributeMissingFillNotificationTests(TestCase):
                 valeur_brute=str(raw),
                 valeur_normalisee=str(raw),
                 est_vide=False,
-                format_source_conforme=True,
+                format_source_conforme=(code not in invalid_systems),
             )
 
         run_campaign(campaign)
@@ -91,20 +93,18 @@ class AttributeMissingFillNotificationTests(TestCase):
             systeme_ecart=self.systems['SIBO'],
         )
         prediction = anomaly.predictions.get()
-        self.assertEqual(prediction.motif.code_motif, 'ATTRIBUT_NON_SYNCHRONISE')
-        self.assertEqual(prediction.systeme_a_corriger_predit, self.systems['SIBO'])
         return anomaly, prediction
 
-    def _validate_and_send(self, anomaly, prediction):
+    def _validate_and_send(self, anomaly, prediction, target_code):
         self.assertEqual(Notification.objects.count(), 0)
         validation = ValidationMotif.objects.create(
             anomalie=anomaly,
             prediction_retenue=prediction,
             motif_final=prediction.motif,
-            systeme_a_corriger_final=self.systems['SIBO'],
+            systeme_a_corriger_final=self.systems[target_code],
             superviseur=self.user,
             decision=ValidationMotif.Decision.ACCEPTE,
-            commentaire='Compléter l’attribut manquant.',
+            commentaire='Traiter l’attribut non synchronisé.',
             version_validation=1,
             est_finale=True,
         )
@@ -116,7 +116,9 @@ class AttributeMissingFillNotificationTests(TestCase):
         anomaly, prediction = self._campaign_with_missing_attribute(
             'SAME', {'SMI': '800', 'SICOM': '800'}
         )
-        notification = self._validate_and_send(anomaly, prediction)
+        self.assertEqual(prediction.motif.code_motif, 'ATTRIBUT_NON_SYNCHRONISE')
+        self.assertEqual(prediction.systeme_a_corriger_predit, self.systems['SIBO'])
+        notification = self._validate_and_send(anomaly, prediction, 'SIBO')
 
         self.assertEqual(notification.groupe.systeme, self.systems['SIBO'])
         self.assertIn('ATTRIBUT À RENSEIGNER', notification.objet)
@@ -129,7 +131,8 @@ class AttributeMissingFillNotificationTests(TestCase):
         anomaly, prediction = self._campaign_with_missing_attribute(
             'DIFF', {'SMI': '800', 'SICOM': '900'}
         )
-        notification = self._validate_and_send(anomaly, prediction)
+        self.assertEqual(prediction.motif.code_motif, 'ATTRIBUT_NON_SYNCHRONISE')
+        notification = self._validate_and_send(anomaly, prediction, 'SIBO')
 
         self.assertEqual(notification.groupe.systeme, self.systems['SIBO'])
         self.assertIn('- SMI : 800', notification.message)
@@ -138,3 +141,19 @@ class AttributeMissingFillNotificationTests(TestCase):
             'BAM Supervise ne choisit pas automatiquement une valeur de référence',
             notification.message,
         )
+
+    def test_invalid_source_format_is_routed_to_source_after_validation(self):
+        anomaly, prediction = self._campaign_with_missing_attribute(
+            'FORMAT',
+            {'SMI': '1.3,12', 'SICOM': '13.12'},
+            invalid_systems={'SMI'},
+        )
+        self.assertEqual(prediction.motif.code_motif, 'FORMAT_MONTANT_INCOMPATIBLE')
+        self.assertEqual(prediction.systeme_a_corriger_predit, self.systems['SMI'])
+        self.assertEqual(Notification.objects.count(), 0)
+
+        notification = self._validate_and_send(anomaly, prediction, 'SMI')
+
+        self.assertEqual(notification.groupe.systeme, self.systems['SMI'])
+        self.assertIn('Format source non conforme', notification.message)
+        self.assertIn('Système à corriger : SMI', notification.message)
