@@ -2,7 +2,7 @@ from django.test import TestCase
 
 from supervision.models import (
     AttributDefinition, CampagneImport, CampagneSupervision, EnvoiSnapshot,
-    FichierImport, Systeme, Superviseur, ValeurAttributSnapshot,
+    FichierImport, ServiceSnapshot, Systeme, Superviseur, ValeurAttributSnapshot,
 )
 from supervision.services.comparison import run_campaign
 from supervision.services.utils import stable_hash
@@ -40,10 +40,10 @@ class ComparisonTests(TestCase):
     def test_different_attribute_values_create_synchronization_anomaly(self):
         campaign = CampagneSupervision.objects.create(superviseur=self.user)
         files = {code: self._file(code) for code in self.systems}
-        city = AttributDefinition.objects.create(
-            code_attribut='VILLE', libelle='Ville', portee='ENVOI', type_valeur='TEXTE'
+        crbt = AttributDefinition.objects.create(
+            code_attribut='MONTANT_CRBT', libelle='Montant CRBT', portee='SERVICE', type_valeur='NOMBRE'
         )
-        for code, value in zip(self.systems, ('RABAT', 'RABAT', 'CASABLANCA')):
+        for code, value in zip(self.systems, ('800', '800', '900')):
             CampagneImport.objects.create(
                 campagne=campaign, systeme=self.systems[code], fichier_import=files[code]
             )
@@ -51,20 +51,32 @@ class ComparisonTests(TestCase):
                 fichier_import=files[code], code_envoi='E-DIFF', org_commerciale='2000',
                 ligne_premiere=2, empreinte_envoi=stable_hash(code, 'E-DIFF'),
             )
+            service = ServiceSnapshot.objects.create(
+                envoi_snapshot=shipment,
+                code_service='30100',
+                libelle_service='CRBT',
+                ligne_source=2,
+                empreinte_service=stable_hash(code, 'E-DIFF', '30100'),
+            )
             ValeurAttributSnapshot.objects.create(
-                envoi_snapshot=shipment, attribut=city, valeur_brute=value,
+                service_snapshot=service, attribut=crbt, valeur_brute=value,
                 valeur_normalisee=value, est_vide=False, format_source_conforme=True,
             )
 
         run_campaign(campaign)
 
         anomaly = campaign.anomalies.get(niveau='ATTRIBUT', type_ecart='DIFFERENT')
-        self.assertEqual(anomaly.attribut, city)
+        self.assertEqual(anomaly.attribut, crbt)
+        # systeme_ecart remains an observation from comparison, but the diagnosis
+        # must not auto-select it as the system to correct.
         self.assertEqual(anomaly.systeme_ecart.code_systeme, 'SIBO')
+        prediction = anomaly.predictions.get()
+        self.assertIsNone(prediction.systeme_a_corriger_predit)
+        self.assertEqual(prediction.explication['role_diagnostic'], 'CONSTAT_ATTRIBUT_DIFFERENT')
         values = {detail.systeme.code_systeme: detail.valeur_brute for detail in anomaly.details.all()}
-        self.assertEqual(values, {'SMI': 'RABAT', 'SICOM': 'RABAT', 'SIBO': 'CASABLANCA'})
+        self.assertEqual(values, {'SMI': '800', 'SICOM': '800', 'SIBO': '900'})
 
-    def test_equivalent_normalized_attribute_values_do_not_create_anomaly(self):
+    def test_equivalent_normalized_non_n3_values_do_not_create_anomaly(self):
         campaign = CampagneSupervision.objects.create(superviseur=self.user)
         files = {code: self._file(code) for code in self.systems}
         amount = AttributDefinition.objects.create(
