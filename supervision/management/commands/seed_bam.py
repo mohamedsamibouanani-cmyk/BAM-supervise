@@ -47,12 +47,16 @@ class Command(BaseCommand):
             ('VILLE_MANQUANTE', 'Ville obligatoire manquante', 'ENVOI', 'DONNEE', 'VILLE'),
             ('TELEPHONE_MANQUANT', 'Téléphone obligatoire manquant', 'ENVOI', 'DONNEE', 'TELEPHONE'),
             ('FORMAT_TELEPHONE_INVALIDE', 'Format du téléphone invalide', 'ENVOI', 'FORMAT', 'TELEPHONE'),
+            ('FORMAT_SOURCE_INCOMPATIBLE', 'Format source potentiellement incompatible', 'ENVOI', 'FORMAT', ''),
             ('FORMAT_MONTANT_INCOMPATIBLE', 'Format de montant incompatible', 'ATTRIBUT', 'FORMAT', 'MONTANT'),
+            ('FORMAT_ATTRIBUT_INCOMPATIBLE', 'Format d’attribut potentiellement incompatible', 'ATTRIBUT', 'FORMAT', ''),
             ('FORMAT_TEXTE_INVALIDE', 'Format de texte invalide', 'ENVOI', 'FORMAT', ''),
             ('CHAMP_SOURCE_MANQUANT', 'Champ source obligatoire manquant', 'ENVOI', 'DONNEE', ''),
             ('CHAMP_OBLIGATOIRE_VIDE', 'Champ obligatoire vide', 'ATTRIBUT', 'DONNEE', ''),
             ('ATTRIBUT_DIFFERENT', 'Valeur d’attribut non synchronisée', 'ATTRIBUT', 'SYNCHRONISATION', ''),
-            ('SERVICE_ABSENT', 'Service absent / non synchronisé', 'SERVICE', 'SYNCHRONISATION', 'ARTICLE'),
+            # SERVICE_ABSENT reste une classification technique interne nécessaire
+            # au routage/à l’audit. L’interface ne la présente pas comme un motif.
+            ('SERVICE_ABSENT', 'Service absent / non synchronisé', 'SERVICE', 'SYSTEME', 'ARTICLE'),
             ('SERVICE_INCONNU', 'Service non reconnu', 'SERVICE', 'REGLE', 'ARTICLE'),
             ('MOTIF_INCONNU', 'Motif non identifié', 'ENVOI', 'TECHNIQUE', ''),
         ]
@@ -66,7 +70,8 @@ class Command(BaseCommand):
                 },
             )
 
-        # Règles génériques : les flux exacts restent configurables dans l'administration.
+        # Règles explicites confirmées. Le diagnostic ENVOI les complète désormais
+        # par une analyse dynamique de tous les attributs importés.
         for level in ('ENVOI', 'ATTRIBUT'):
             for col in ('VILLE', 'VILLE_DESTINATION'):
                 RegleMetier.objects.update_or_create(
@@ -102,8 +107,8 @@ class Command(BaseCommand):
                 'expression_regle': {}, 'seuil_confiance': 0.90, 'priorite': 25, 'actif': True,
             },
         )
-        # Seules les structures source réellement confirmées sont initialisées.
-        # ARTICLE / DES_ARTICLE ne sont pas considérés comme invalides sans règle métier validée.
+        # ARTICLE est l’identifiant du service. Il n’est jamais considéré comme
+        # invalide parce qu’il est numérique.
         RegleMetier.objects.update_or_create(
             code_regle='ENVOI_STRUCTURE_NUM_COMMANDE',
             defaults={
@@ -113,28 +118,20 @@ class Command(BaseCommand):
                 'priorite': 26, 'actif': True,
             },
         )
-        for level in ('ENVOI', 'SERVICE'):
-            for col in ('VILLE', 'VILLE_DESTINATION', 'PAYS', 'PAYS_DESTINATION'):
-                RegleMetier.objects.update_or_create(
-                    code_regle=f'{level}_{col}_FORMAT',
-                    defaults={
-                        'attribut': attr_objs[col], 'motif_suggere': motifs['FORMAT_TEXTE_INVALIDE'],
-                        'niveau_anomalie': level, 'type_controle': 'FORMAT_INCOMPATIBLE',
-                        'expression_regle': {}, 'seuil_confiance': 0.90, 'priorite': 30, 'actif': True,
-                    },
-                )
-            for col in ('MNT_HT', 'MNT_TVA', 'MNT_TTC', 'CRBT', 'VALEUR_DECLAREE'):
-                RegleMetier.objects.update_or_create(
-                    code_regle=f'{level}_{col}_FORMAT',
-                    defaults={
-                        'attribut': attr_objs[col], 'motif_suggere': motifs['FORMAT_MONTANT_INCOMPATIBLE'],
-                        'niveau_anomalie': level, 'type_controle': 'FORMAT_INCOMPATIBLE',
-                        'expression_regle': {}, 'seuil_confiance': 0.90, 'priorite': 40, 'actif': True,
-                    },
-                )
+        for col in ('VILLE', 'VILLE_DESTINATION', 'PAYS', 'PAYS_DESTINATION'):
+            RegleMetier.objects.update_or_create(
+                code_regle=f'ENVOI_{col}_FORMAT',
+                defaults={
+                    'attribut': attr_objs[col], 'motif_suggere': motifs['FORMAT_TEXTE_INVALIDE'],
+                    'niveau_anomalie': 'ENVOI', 'type_controle': 'FORMAT_INCOMPATIBLE',
+                    'expression_regle': {}, 'seuil_confiance': 0.90, 'priorite': 30, 'actif': True,
+                },
+            )
 
-        # Dans le prototype, chaque système possède un groupe par défaut. La combinaison
-        # motif + système reste matérialisée dans regle_affectation et peut être spécialisée plus tard.
+        # Les règles de niveau SERVICE qui proposaient des motifs sont désactivées :
+        # ce niveau doit rester un simple constat de désynchronisation.
+        RegleMetier.objects.filter(niveau_anomalie='SERVICE').update(actif=False)
+
         for system in systems.values():
             group = GroupeResponsable.objects.get(systeme=system, nom_groupe=f'Groupe {system.code_systeme}')
             for motif in motifs.values():
