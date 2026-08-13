@@ -65,12 +65,7 @@ class AttributeSyncIsolationTests(TestCase):
             for code in self.systems
         }
 
-        crbt = AttributDefinition.objects.create(
-            code_attribut='MONTANT_CRBT',
-            libelle='Montant CRBT',
-            portee=AttributDefinition.Portee.SERVICE,
-            type_valeur=AttributDefinition.TypeValeur.NOMBRE,
-        )
+        crbt = AttributDefinition.objects.get(code_attribut='MONTANT_CRBT')
         ValeurAttributSnapshot.objects.create(
             service_snapshot=snapshots['SMI'][1],
             attribut=crbt,
