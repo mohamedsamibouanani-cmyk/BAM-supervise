@@ -19,7 +19,6 @@ class RoutingError(ValueError):
 
 
 def _ensure_real_delivery_backend():
-    """Prevent a simulated backend from being recorded as a real delivered notification."""
     try:
         validate_real_email_config()
     except EmailConfigurationError as exc:
@@ -27,7 +26,6 @@ def _ensure_real_delivery_backend():
 
 
 def _delivery_error_message(exc):
-    """Turn provider errors into an actionable supervisor-facing message."""
     raw = str(exc).strip()
     lowered = raw.lower()
     if '525' in lowered and 'unauthorized ip address' in lowered:
@@ -40,11 +38,6 @@ def _delivery_error_message(exc):
 
 
 def _active_validations(validation):
-    """Return the current cause set for the dossier.
-
-    A legacy dossier has one final ValidationMotif. A multi-cause dossier has one
-    final ValidationMotif per accepted cause. Old revisions are excluded.
-    """
     if not validation.est_finale:
         return [validation]
     rows = list(
@@ -62,22 +55,14 @@ def _active_validations(validation):
 
 
 def _validation_target_codes(validation):
-    """Resolve destinations safely.
-
-    Accepted predictions are recomputed from the current campaign evidence. The
-    historical singular field is used only for explicit/manual decisions or old
-    validations that do not have a prediction.
-    """
     if validation.decision == ValidationMotif.Decision.ACCEPTE and validation.prediction_retenue_id:
         return prediction_target_codes(validation.prediction_retenue)
-
     if validation.systeme_a_corriger_final_id:
         return [validation.systeme_a_corriger_final.code_systeme]
     return []
 
 
 def _target_systems(validation):
-    """Resolve the union of systems responsible for every active cause."""
     codes = []
     for cause in _active_validations(validation):
         for code in _validation_target_codes(cause):
@@ -98,7 +83,6 @@ def _target_systems(validation):
 
 
 def _causes_for_system(validation, system):
-    """Return only the accepted causes that concern the requested system."""
     causes = []
     for item in _active_validations(validation):
         if system.code_systeme not in _validation_target_codes(item):
@@ -137,7 +121,6 @@ def _causes_for_system(validation, system):
 
 
 def route_group(validation, system):
-    """Route using the first matching cause for this system, then fallback to its active group."""
     for cause in _causes_for_system(validation, system):
         rule = RegleAffectation.objects.filter(
             systeme_a_corriger=system,
@@ -156,14 +139,40 @@ def route_group(validation, system):
     raise RoutingError(f'Aucun groupe responsable configuré pour le système {system.code_systeme}.')
 
 
+def _build_service_email(validation, system):
+    anomaly = validation.anomalie
+    subject = (
+        f'[BAM Supervise][{system.code_systeme}] SERVICE ABSENT - {anomaly.code_envoi}'
+    )
+    observed = anomaly.systeme_ecart.code_systeme if anomaly.systeme_ecart_id else system.code_systeme
+    body = (
+        f'Bonjour,\n\n'
+        f'BAM Supervise a détecté une désynchronisation de service.\n\n'
+        f'Code envoi : {anomaly.code_envoi}\n'
+        f'Service : {anomaly.code_service or "-"}\n'
+        f'Constat : service absent / non synchronisé dans {observed}\n'
+        f'Système concerné : {system.code_systeme}\n\n'
+        f'Aucun motif métier n’est attribué automatiquement à ce niveau.\n'
+        f'Merci de vérifier la présence et la synchronisation du service dans votre système.\n'
+        f'La résolution sera contrôlée lors du prochain import.\n\n'
+        f'Commentaire : {validation.commentaire or "-"}\n\n'
+        f'BAM Supervise'
+    )
+    return subject, body
+
+
 def build_email(validation, group, system):
     anomaly = validation.anomalie
+    if anomaly.niveau == Anomalie.Niveau.SERVICE:
+        return _build_service_email(validation, system)
+
     if anomaly.niveau == Anomalie.Niveau.ENVOI:
         element = f'Envoi {anomaly.code_envoi}'
-    elif anomaly.niveau == Anomalie.Niveau.SERVICE:
-        element = f'Service {anomaly.code_service} de l’envoi {anomaly.code_envoi}'
     else:
-        element = f'Attribut {anomaly.attribut.code_attribut if anomaly.attribut_id else "-"} de l’envoi {anomaly.code_envoi}'
+        element = (
+            f'Attribut {anomaly.attribut.code_attribut if anomaly.attribut_id else "-"} '
+            f'de l’envoi {anomaly.code_envoi}'
+        )
 
     causes = _causes_for_system(validation, system)
     primary = causes[0] if causes else {
@@ -300,11 +309,6 @@ def _send_one(validation, system):
 
 
 def send_validation_email(validation):
-    """Send one traceable notification per responsible system.
-
-    When several causes were accepted together, their systems are unioned and each
-    email contains only the causes relevant to its destination system.
-    """
     systems = _target_systems(validation)
     sent_notifications = []
     failures = []
