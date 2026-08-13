@@ -95,14 +95,37 @@ class MultiCauseValidationForm(forms.Form):
                 ]
                 self.fields['decision'].initial = 'MODIFIE'
 
+        difference_constat = None
+        if (
+            anomaly.niveau == anomaly.Niveau.ATTRIBUT
+            and anomaly.type_ecart == anomaly.TypeEcart.DIFFERENT
+        ):
+            for candidate in qs:
+                if (candidate.explication or {}).get('role_diagnostic') == 'CONSTAT_ATTRIBUT_DIFFERENT':
+                    difference_constat = candidate
+                    break
+        if difference_constat:
+            self.fields['systeme_a_corriger_final'].label = 'Système à corriger (à confirmer)'
+            self.fields['decision'].choices = [
+                ('MODIFIE', 'Choisir le système à corriger et valider'),
+                ('INCONNU', 'À investiguer'),
+            ]
+            self.fields['decision'].initial = 'MODIFIE'
+            # La cause reste un constat technique tant que la règle métier de
+            # sélection de la valeur de référence n'a pas été validée.
+            self.fields['motif_final'].widget = forms.HiddenInput()
+            self.fields['nouveau_motif'].widget = forms.HiddenInput()
+
         def label_for(prediction):
             explanation = prediction.explication or {}
             if anomaly.niveau == anomaly.Niveau.SERVICE:
                 targets = explanation.get('systemes_a_corriger') or []
                 suffix = f' · absent dans {", ".join(targets)}' if targets else ''
                 return f'Service {anomaly.code_service} non synchronisé{suffix}'
-            if explanation.get('role_diagnostic') == 'CONSTAT_ATTRIBUT':
-                return prediction.motif.libelle
+            if explanation.get('role_diagnostic') in {
+                'CONSTAT_ATTRIBUT', 'CONSTAT_ATTRIBUT_DIFFERENT'
+            }:
+                return explanation.get('message') or prediction.motif.libelle
             if anomaly.niveau == anomaly.Niveau.ENVOI and explanation.get('message'):
                 label = explanation['message']
                 if explanation.get('role_diagnostic') == 'MOTIF_NON_IDENTIFIABLE':
@@ -180,10 +203,44 @@ class MultiCauseValidationForm(forms.Form):
             raise forms.ValidationError('Sélectionnez le système concerné.')
         return cleaned
 
+    def _clean_attribute_difference(self, cleaned):
+        prediction = cleaned.get('prediction') or self.anomaly.predictions.order_by('rang').first()
+        decision = cleaned.get('decision')
+        if decision == 'INCONNU':
+            unknown = Motif.objects.filter(code_motif='MOTIF_INCONNU', actif=True).first()
+            if unknown is None:
+                raise forms.ValidationError('Le motif MOTIF_INCONNU doit être initialisé.')
+            cleaned['motif_final'] = unknown
+            cleaned['predictions_selectionnees'] = []
+        else:
+            if prediction is None:
+                raise forms.ValidationError('Le constat de valeurs différentes est introuvable.')
+            cleaned['prediction'] = prediction
+            cleaned['predictions_selectionnees'] = [prediction]
+            cleaned['motif_final'] = prediction.motif
+            cleaned['decision'] = 'MODIFIE'
+        if not cleaned.get('systeme_a_corriger_final'):
+            raise forms.ValidationError(
+                'Choisissez explicitement le système à corriger. '
+                'BAM Supervise ne détermine pas encore automatiquement la valeur de référence.'
+            )
+        cleaned['nouveau_motif'] = ''
+        return cleaned
+
     def clean(self):
         cleaned = super().clean()
         if self.anomaly.niveau == self.anomaly.Niveau.SERVICE:
             return self._clean_service(cleaned)
+
+        difference_constat = (
+            self.anomaly.niveau == self.anomaly.Niveau.ATTRIBUT
+            and self.anomaly.type_ecart == self.anomaly.TypeEcart.DIFFERENT
+            and self.anomaly.predictions.filter(
+                explication__role_diagnostic='CONSTAT_ATTRIBUT_DIFFERENT'
+            ).exists()
+        )
+        if difference_constat:
+            return self._clean_attribute_difference(cleaned)
 
         decision = cleaned.get('decision')
         selected = sorted(list(cleaned.get('predictions') or []), key=lambda p: p.rang)
