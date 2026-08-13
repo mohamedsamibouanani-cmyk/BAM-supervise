@@ -51,7 +51,7 @@ class Command(BaseCommand):
             ('FORMAT_MONTANT_INCOMPATIBLE', 'Format de montant incompatible', 'ATTRIBUT', 'FORMAT', 'MONTANT'),
             ('FORMAT_ATTRIBUT_INCOMPATIBLE', 'Format d’attribut potentiellement incompatible', 'ATTRIBUT', 'FORMAT', ''),
             ('FORMAT_TEXTE_INVALIDE', 'Format de texte invalide', 'ENVOI', 'FORMAT', ''),
-            ('CHAMP_SOURCE_MANQUANT', 'Champ source obligatoire manquant', 'ENVOI', 'DONNEE', ''),
+            ('CHAMP_SOURCE_MANQUANT', 'Champ source manquant ou vide', 'ENVOI', 'DONNEE', ''),
             ('CHAMP_OBLIGATOIRE_VIDE', 'Champ obligatoire vide', 'ATTRIBUT', 'DONNEE', ''),
             ('ATTRIBUT_DIFFERENT', 'Valeur d’attribut non synchronisée', 'ATTRIBUT', 'SYNCHRONISATION', ''),
             # SERVICE_ABSENT reste une classification technique interne nécessaire
