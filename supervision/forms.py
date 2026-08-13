@@ -32,16 +32,13 @@ class CampaignImportForm(forms.Form):
             uploaded = cleaned.get(key)
             if not uploaded:
                 continue
-
             extension = Path(uploaded.name).suffix.lower()
             if extension not in {'.xlsx', '.xls'}:
                 self.add_error(key, 'Le fichier doit être un classeur Excel .xlsx ou .xls.')
                 continue
-
             if uploaded.size > MAX_UPLOAD_BYTES:
                 self.add_error(key, 'Le fichier dépasse la taille maximale autorisée de 20 Mo.')
                 continue
-
             position = uploaded.tell()
             header = uploaded.read(8)
             uploaded.seek(position)
@@ -52,7 +49,6 @@ class CampaignImportForm(forms.Form):
             )
             if not valid_signature:
                 self.add_error(key, 'Le contenu du fichier ne correspond pas à un classeur Excel valide.')
-
         return cleaned
 
 
@@ -75,11 +71,11 @@ class ValidationMotifForm(forms.Form):
         }),
     )
     systeme_a_corriger_final = forms.ModelChoiceField(
-        queryset=Systeme.objects.filter(actif=True), label='Système à corriger',
+        queryset=Systeme.objects.filter(actif=True), label='Système responsable',
         widget=forms.Select(attrs={'class': 'form-select'}),
     )
     decision = forms.ChoiceField(
-        choices=[('ACCEPTE', 'Accepter'), ('MODIFIE', 'Modifier'), ('INCONNU', 'Motif inconnu')],
+        choices=[('ACCEPTE', 'Accepter'), ('MODIFIE', 'Modifier'), ('INCONNU', 'À investiguer')],
         initial='ACCEPTE',
         widget=forms.RadioSelect,
     )
@@ -95,8 +91,18 @@ class ValidationMotifForm(forms.Form):
     def __init__(self, anomaly, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.anomaly = anomaly
-        self.fields['prediction'].queryset = anomaly.predictions.select_related('motif', 'systeme_a_corriger_predit').order_by('rang')
-        self.fields['prediction'].label_from_instance = lambda p: f'#{p.rang} {p.motif.libelle} ({float(p.score_confiance)*100:.0f}%)'
+        self.fields['prediction'].queryset = anomaly.predictions.select_related(
+            'motif', 'systeme_a_corriger_predit'
+        ).order_by('rang')
+        self.fields['prediction'].label_from_instance = (
+            lambda p: f'#{p.rang} {p.motif.libelle} ({float(p.score_confiance)*100:.0f}%)'
+        )
+        if anomaly.niveau == anomaly.Niveau.SERVICE:
+            self.fields['decision'].choices = [
+                ('ACCEPTE', 'Confirmer'),
+                ('MODIFIE', 'Changer le système concerné'),
+                ('INCONNU', 'À investiguer'),
+            ]
 
     def clean(self):
         cleaned = super().clean()
@@ -105,33 +111,43 @@ class ValidationMotifForm(forms.Form):
         motif = cleaned.get('motif_final')
         nouveau_motif = (cleaned.get('nouveau_motif') or '').strip()
 
+        # Niveau SERVICE : aucun motif métier n'est demandé au superviseur. Le motif
+        # SERVICE_ABSENT est uniquement une classification technique interne pour
+        # conserver le routage et la traçabilité avec le schéma actuel.
+        if self.anomaly.niveau == self.anomaly.Niveau.SERVICE:
+            technical = Motif.objects.filter(code_motif='SERVICE_ABSENT', actif=True).first()
+            if not technical:
+                raise forms.ValidationError('Le référentiel technique SERVICE_ABSENT doit être initialisé.')
+            if prediction is None:
+                prediction = self.anomaly.predictions.order_by('rang').first()
+                if prediction is not None:
+                    cleaned['prediction'] = prediction
+            cleaned['motif_final'] = technical
+            cleaned['nouveau_motif'] = ''
+            if decision == 'ACCEPTE' and prediction is not None and prediction.systeme_a_corriger_predit_id:
+                cleaned['systeme_a_corriger_final'] = prediction.systeme_a_corriger_predit
+            if not cleaned.get('systeme_a_corriger_final'):
+                raise forms.ValidationError('Sélectionnez le système où le service est désynchronisé.')
+            return cleaned
+
         if decision == 'ACCEPTE':
-            # L'interface envoie normalement la proposition sélectionnée. Pour
-            # conserver la compatibilité avec les anciens clients/tests, on
-            # reprend la proposition prioritaire si le champ n'est pas envoyé.
             if prediction is None:
                 prediction = self.anomaly.predictions.select_related(
                     'motif', 'systeme_a_corriger_predit'
                 ).order_by('rang').first()
                 if prediction is not None:
                     cleaned['prediction'] = prediction
-
             if prediction is not None:
-                # Une acceptation conserve exactement le diagnostic choisi afin
-                # d'éviter un motif ou un système obsolète après changement de
-                # proposition côté interface.
                 cleaned['motif_final'] = prediction.motif
                 if prediction.systeme_a_corriger_predit_id:
                     cleaned['systeme_a_corriger_final'] = prediction.systeme_a_corriger_predit
             elif not motif:
                 raise forms.ValidationError('Sélectionnez un diagnostic ou un motif à accepter.')
-
         elif decision == 'INCONNU':
             unknown = Motif.objects.filter(code_motif='MOTIF_INCONNU').first()
             if not unknown:
                 raise forms.ValidationError('Le motif MOTIF_INCONNU doit être initialisé.')
             cleaned['motif_final'] = unknown
-
         elif decision == 'MODIFIE':
             if nouveau_motif:
                 cleaned['motif_final'] = None
@@ -139,7 +155,7 @@ class ValidationMotifForm(forms.Form):
                 raise forms.ValidationError('Sélectionnez un motif existant ou saisissez la cause réelle.')
 
         if not cleaned.get('systeme_a_corriger_final'):
-            raise forms.ValidationError('Sélectionnez le système à corriger.')
+            raise forms.ValidationError('Sélectionnez le système responsable.')
         return cleaned
 
 
