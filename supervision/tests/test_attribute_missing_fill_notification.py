@@ -156,4 +156,5 @@ class AttributeMissingFillNotificationTests(TestCase):
 
         self.assertEqual(notification.groupe.systeme, self.systems['SMI'])
         self.assertIn('Format source non conforme', notification.message)
-        self.assertIn('Système à corriger : SMI', notification.message)
+        self.assertIn('Système source à corriger : SMI', notification.message)
+        self.assertIn('corriger le format du champ MONTANT_CRBT', notification.message)
