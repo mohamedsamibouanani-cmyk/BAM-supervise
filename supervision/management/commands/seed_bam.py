@@ -70,18 +70,17 @@ class Command(BaseCommand):
                 },
             )
 
-        # Règles explicites confirmées. Le diagnostic ENVOI les complète désormais
-        # par une analyse dynamique de tous les attributs importés.
-        for level in ('ENVOI', 'ATTRIBUT'):
-            for col in ('VILLE', 'VILLE_DESTINATION'):
-                RegleMetier.objects.update_or_create(
-                    code_regle=f'{level}_VILLE_VIDE_{col}',
-                    defaults={
-                        'attribut': attr_objs[col], 'motif_suggere': motifs['VILLE_MANQUANTE'],
-                        'niveau_anomalie': level, 'type_controle': 'VIDE',
-                        'expression_regle': {}, 'seuil_confiance': 0.95, 'priorite': 10, 'actif': True,
-                    },
-                )
+        # Niveau ENVOI : les règles confirmées complètent l'analyse dynamique de
+        # tous les champs importés. La comparaison N3 gère elle-même les attributs.
+        for col in ('VILLE', 'VILLE_DESTINATION'):
+            RegleMetier.objects.update_or_create(
+                code_regle=f'ENVOI_VILLE_VIDE_{col}',
+                defaults={
+                    'attribut': attr_objs[col], 'motif_suggere': motifs['VILLE_MANQUANTE'],
+                    'niveau_anomalie': 'ENVOI', 'type_controle': 'VIDE',
+                    'expression_regle': {}, 'seuil_confiance': 0.95, 'priorite': 10, 'actif': True,
+                },
+            )
         RegleMetier.objects.update_or_create(
             code_regle='ATTRIBUT_VALEUR_DIFFERENTE',
             defaults={
@@ -107,8 +106,6 @@ class Command(BaseCommand):
                 'expression_regle': {}, 'seuil_confiance': 0.90, 'priorite': 25, 'actif': True,
             },
         )
-        # ARTICLE est l’identifiant du service. Il n’est jamais considéré comme
-        # invalide parce qu’il est numérique.
         RegleMetier.objects.update_or_create(
             code_regle='ENVOI_STRUCTURE_NUM_COMMANDE',
             defaults={
@@ -128,9 +125,11 @@ class Command(BaseCommand):
                 },
             )
 
-        # Les règles de niveau SERVICE qui proposaient des motifs sont désactivées :
-        # ce niveau doit rester un simple constat de désynchronisation.
+        # Nettoyage des anciennes règles devenues contraires au modèle actuel.
         RegleMetier.objects.filter(niveau_anomalie='SERVICE').update(actif=False)
+        RegleMetier.objects.filter(
+            niveau_anomalie='ATTRIBUT', type_controle='VIDE'
+        ).update(actif=False)
 
         for system in systems.values():
             group = GroupeResponsable.objects.get(systeme=system, nom_groupe=f'Groupe {system.code_systeme}')
