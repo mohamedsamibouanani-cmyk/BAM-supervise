@@ -77,6 +77,24 @@ class MultiCauseValidationForm(forms.Form):
                 ('INCONNU', 'À investiguer'),
             ]
 
+        unknown_envoi = qs.filter(
+            motif__code_motif='MOTIF_INCONNU'
+        ).first() if anomaly.niveau == anomaly.Niveau.ENVOI else None
+        if unknown_envoi:
+            explanation = unknown_envoi.explication or {}
+            self.fields['systeme_a_corriger_final'].label = 'Système source à relancer'
+            candidates = explanation.get('systemes_sources_candidates') or []
+            if candidates:
+                self.fields['systeme_a_corriger_final'].queryset = Systeme.objects.filter(
+                    actif=True, code_systeme__in=candidates
+                ).order_by('ordre_comparaison')
+            if explanation.get('systeme_source_a_confirmer'):
+                self.fields['decision'].choices = [
+                    ('MODIFIE', 'Choisir le système source et valider'),
+                    ('INCONNU', 'À investiguer'),
+                ]
+                self.fields['decision'].initial = 'MODIFIE'
+
         def label_for(prediction):
             explanation = prediction.explication or {}
             if anomaly.niveau == anomaly.Niveau.SERVICE:
@@ -85,6 +103,12 @@ class MultiCauseValidationForm(forms.Form):
                 return f'Service {anomaly.code_service} non synchronisé{suffix}'
             if explanation.get('role_diagnostic') == 'CONSTAT_ATTRIBUT':
                 return prediction.motif.libelle
+            if anomaly.niveau == anomaly.Niveau.ENVOI and explanation.get('message'):
+                label = explanation['message']
+                if explanation.get('role_diagnostic') == 'MOTIF_NON_IDENTIFIABLE':
+                    return label
+                score = float(prediction.score_confiance) * 100
+                return f'{label} · {score:.0f}%'
             score = float(prediction.score_confiance) * 100
             return f'{prediction.motif.libelle} · {score:.0f}%'
 
@@ -128,7 +152,7 @@ class MultiCauseValidationForm(forms.Form):
                 raise forms.ValidationError('Aucun constat de désynchronisation n’est disponible.')
             cleaned['prediction'] = prediction
             cleaned['predictions_selectionnees'] = [prediction]
-            cleaned['motif_final'] = prediction.motif  # classification technique interne
+            cleaned['motif_final'] = prediction.motif
             if prediction.systeme_a_corriger_predit_id:
                 cleaned['systeme_a_corriger_final'] = prediction.systeme_a_corriger_predit
             elif not system:
@@ -144,7 +168,7 @@ class MultiCauseValidationForm(forms.Form):
                 raise forms.ValidationError('Le référentiel technique SERVICE_ABSENT doit être initialisé.')
             cleaned['motif_final'] = technical
             cleaned['nouveau_motif'] = ''
-        else:  # INCONNU
+        else:
             cleaned['predictions_selectionnees'] = []
             unknown = Motif.objects.filter(code_motif='MOTIF_INCONNU', actif=True).first()
             if unknown is None:
@@ -205,7 +229,11 @@ class MultiCauseValidationForm(forms.Form):
             elif not motif:
                 raise forms.ValidationError('Sélectionnez une cause existante ou saisissez la cause réelle.')
             if not cleaned.get('systeme_a_corriger_final'):
-                raise forms.ValidationError('Sélectionnez le système responsable.')
+                label = 'système source à relancer' if (
+                    self.anomaly.niveau == self.anomaly.Niveau.ENVOI
+                    and motif and motif.code_motif == 'MOTIF_INCONNU'
+                ) else 'système responsable'
+                raise forms.ValidationError(f'Sélectionnez le {label}.')
 
         elif decision == 'INCONNU':
             cleaned['predictions_selectionnees'] = []
@@ -217,5 +245,5 @@ class MultiCauseValidationForm(forms.Form):
                 raise forms.ValidationError('Sélectionnez le système à investiguer.')
 
         if not cleaned.get('systeme_a_corriger_final'):
-            raise forms.ValidationError('Aucun système responsable n’a pu être déterminé.')
+            raise forms.ValidationError('Aucun système responsable ou source n’a pu être déterminé.')
         return cleaned
