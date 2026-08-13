@@ -1,6 +1,6 @@
 {% extends 'supervision/base.html' %}
 {% load static %}
-{% block title %}Valider le diagnostic · BAM Supervise{% endblock %}
+{% block title %}{% if anomaly.niveau == 'SERVICE' %}Valider le constat{% else %}Valider le diagnostic{% endif %} · BAM Supervise{% endblock %}
 {% block head %}<link rel="stylesheet" href="{% static 'supervision/validation-form.css' %}">{% endblock %}
 {% block content %}
 <div class="validation-shell">
@@ -9,7 +9,7 @@
     <div class="validation-head-row">
       <div>
         <div class="validation-eyebrow">Dossier #{{ anomaly.pk }}</div>
-        <h1>Valider le diagnostic</h1>
+        <h1>{% if anomaly.niveau == 'SERVICE' %}Valider le constat{% else %}Valider le diagnostic{% endif %}</h1>
         <p>
           <strong>{{ anomaly.code_envoi }}</strong>
           <span>·</span> {{ anomaly.get_niveau_display }} {{ anomaly.get_type_ecart_display|lower }}
@@ -21,8 +21,8 @@
   </header>
 
   <section class="validation-card" aria-labelledby="validation-diagnostic-title">
-    <form method="post" id="validationForm">{% csrf_token %}
-      {{ form.prediction }}
+    <form method="post" id="validationForm" data-anomaly-level="{{ anomaly.niveau }}">{% csrf_token %}
+      <div hidden>{{ form.prediction }}</div>
       {{ form.multi_cause_mode }}
       {% if form.non_field_errors %}<div class="alert alert-danger validation-error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
 
@@ -30,10 +30,15 @@
         <section class="validation-panel validation-causes-panel" id="causesPanel" aria-labelledby="validation-diagnostic-title">
           <div class="validation-panel-head">
             <div>
-              <span class="validation-kicker">Diagnostic</span>
-              <h2 id="validation-diagnostic-title">Causes détectées</h2>
-              <p>Gardez uniquement les causes que vous confirmez.</p>
+              <span class="validation-kicker">{% if anomaly.niveau == 'SERVICE' %}Synchronisation{% else %}Diagnostic{% endif %}</span>
+              <h2 id="validation-diagnostic-title">{% if anomaly.niveau == 'SERVICE' %}Service non synchronisé{% else %}Causes détectées{% endif %}</h2>
+              {% if anomaly.niveau == 'SERVICE' %}
+                <p>Confirmez simplement le système où le service manque.</p>
+              {% else %}
+                <p>Gardez uniquement les causes que vous confirmez.</p>
+              {% endif %}
             </div>
+            {% if anomaly.niveau != 'SERVICE' %}
             <div class="validation-panel-tools">
               {% if anomaly.predictions.count > 1 %}
                 <button class="validation-tool-link" type="button" id="selectAllCauses">Tout sélectionner</button>
@@ -41,40 +46,45 @@
               {% endif %}
               {% if anomaly.predictions.count %}<span class="validation-count-badge" aria-label="{{ anomaly.predictions.count }} causes proposées">{{ anomaly.predictions.count }}</span>{% endif %}
             </div>
+            {% endif %}
           </div>
 
-          <fieldset class="validation-choice-fieldset">
-            <legend class="visually-hidden">Causes à confirmer</legend>
+          {% if anomaly.niveau == 'SERVICE' %}
             <div class="validation-cause-options">
-              {{ form.predictions }}
+              <div class="validation-cause-option">
+                <strong>Service {{ anomaly.code_service }}</strong>
+                {% if anomaly.systeme_ecart %}<span>Absent dans {{ anomaly.systeme_ecart.code_systeme }}</span>{% endif %}
+              </div>
             </div>
-          </fieldset>
-          {% if form.predictions.errors %}<div class="text-danger small mt-2" role="alert">{{ form.predictions.errors }}</div>{% endif %}
+          {% else %}
+            <fieldset class="validation-choice-fieldset">
+              <legend class="visually-hidden">Causes à confirmer</legend>
+              <div class="validation-cause-options">{{ form.predictions }}</div>
+            </fieldset>
+            {% if form.predictions.errors %}<div class="text-danger small mt-2" role="alert">{{ form.predictions.errors }}</div>{% endif %}
 
-          <div class="validation-selection-bar" id="selectionSummary" hidden aria-live="polite" aria-atomic="true">
-            <strong id="selectedCountText">Sélection en cours</strong>
-            <div class="validation-selection-targets">
-              <span>Systèmes concernés</span>
-              <div class="validation-target-list" id="selectedTargets"></div>
+            <div class="validation-selection-bar" id="selectionSummary" hidden aria-live="polite" aria-atomic="true">
+              <strong id="selectedCountText">Sélection en cours</strong>
+              <div class="validation-selection-targets">
+                <span>Systèmes concernés</span>
+                <div class="validation-target-list" id="selectedTargets"></div>
+              </div>
             </div>
-          </div>
+          {% endif %}
         </section>
 
         <section class="validation-panel validation-decision-panel" aria-labelledby="validation-decision-title">
           <div class="validation-panel-head">
-            <div>
-              <span class="validation-kicker">Action</span>
-              <h2 id="validation-decision-title">Décision</h2>
-              <p>Choisissez simplement la suite à donner.</p>
-            </div>
+            <div><span class="validation-kicker">Action</span><h2 id="validation-decision-title">Décision</h2><p>Choisissez simplement la suite à donner.</p></div>
           </div>
-
           <fieldset class="validation-choice-fieldset">
             <legend class="visually-hidden">Décision du superviseur</legend>
             <div class="validation-decision-options">{{ form.decision }}</div>
           </fieldset>
           {% if form.decision.errors %}<div class="text-danger small mt-2" role="alert">{{ form.decision.errors }}</div>{% endif %}
-          <p class="validation-decision-help" id="decisionHelp">Les causes sélectionnées seront validées ensemble.</p>
+          <p class="validation-decision-help" id="decisionHelp">
+            {% if anomaly.niveau == 'SERVICE' %}Le constat sera validé sans motif métier.{% else %}Les causes sélectionnées seront validées ensemble.{% endif %}
+          </p>
         </section>
       </div>
 
@@ -82,8 +92,8 @@
         <div class="validation-adjustment-head">
           <div>
             <span class="validation-kicker">Précision</span>
-            <h2 id="adjustmentTitle">Ajuster le diagnostic</h2>
-            <p id="adjustmentHint">Définissez la cause et le système responsable.</p>
+            <h2 id="adjustmentTitle">{% if anomaly.niveau == 'SERVICE' %}Ajuster le système concerné{% else %}Ajuster le diagnostic{% endif %}</h2>
+            <p id="adjustmentHint">{% if anomaly.niveau == 'SERVICE' %}Choisissez uniquement le système concerné.{% else %}Définissez la cause et le système responsable.{% endif %}</p>
           </div>
         </div>
 
@@ -93,18 +103,22 @@
             {{ form.systeme_a_corriger_final }}
             {% if form.systeme_a_corriger_final.errors %}<div class="text-danger small mt-1" role="alert">{{ form.systeme_a_corriger_final.errors }}</div>{% endif %}
           </div>
-          <div class="validation-motif-field">
-            <label class="form-label" for="{{ form.motif_final.id_for_label }}">Cause retenue</label>
-            {{ form.motif_final }}
-            {% if form.motif_final.errors %}<div class="text-danger small mt-1" role="alert">{{ form.motif_final.errors }}</div>{% endif %}
-          </div>
-          <div class="validation-new-reason">
-            <div class="validation-or"><span>ou</span></div>
-            <label class="form-label" for="{{ form.nouveau_motif.id_for_label }}">Nouvelle cause</label>
-            {{ form.nouveau_motif }}
-            {% if form.nouveau_motif.errors %}<div class="text-danger small mt-1" role="alert">{{ form.nouveau_motif.errors }}</div>{% endif %}
-            <small>Une cause confirmée pourra être réutilisée pour des dossiers similaires.</small>
-          </div>
+          {% if anomaly.niveau != 'SERVICE' %}
+            <div class="validation-motif-field">
+              <label class="form-label" for="{{ form.motif_final.id_for_label }}">Cause retenue</label>
+              {{ form.motif_final }}
+              {% if form.motif_final.errors %}<div class="text-danger small mt-1" role="alert">{{ form.motif_final.errors }}</div>{% endif %}
+            </div>
+            <div class="validation-new-reason">
+              <div class="validation-or"><span>ou</span></div>
+              <label class="form-label" for="{{ form.nouveau_motif.id_for_label }}">Nouvelle cause</label>
+              {{ form.nouveau_motif }}
+              {% if form.nouveau_motif.errors %}<div class="text-danger small mt-1" role="alert">{{ form.nouveau_motif.errors }}</div>{% endif %}
+              <small>Une cause confirmée pourra être réutilisée pour des dossiers similaires.</small>
+            </div>
+          {% else %}
+            <div hidden>{{ form.motif_final }}{{ form.nouveau_motif }}</div>
+          {% endif %}
         </div>
       </section>
 
@@ -118,12 +132,10 @@
       </details>
 
       <footer class="validation-actions">
-        <p id="footerSummary" aria-live="polite"><i class="bi bi-envelope-check" aria-hidden="true"></i><span>La validation notifiera les systèmes concernés.</span></p>
+        <p id="footerSummary" aria-live="polite"><i class="bi bi-envelope-check" aria-hidden="true"></i><span>{% if anomaly.niveau == 'SERVICE' %}Le système concerné sera notifié après confirmation.{% else %}La validation notifiera les systèmes concernés.{% endif %}</span></p>
         <div>
           <a class="btn btn-light" href="{% url 'anomaly_detail' anomaly.pk %}">Annuler</a>
-          <button class="btn btn-primary" type="submit" id="submitDecision">
-            <i class="bi bi-check2-square me-1" aria-hidden="true"></i><span id="submitDecisionLabel">Valider et notifier</span>
-          </button>
+          <button class="btn btn-primary" type="submit" id="submitDecision"><i class="bi bi-check2-square me-1" aria-hidden="true"></i><span id="submitDecisionLabel">{% if anomaly.niveau == 'SERVICE' %}Confirmer et notifier{% else %}Valider et notifier{% endif %}</span></button>
         </div>
       </footer>
     </form>
@@ -132,16 +144,8 @@
 
 <div id="predictionMetadata" hidden>
   {% for prediction in anomaly.predictions.all %}
-    <span
-      data-prediction-id="{{ prediction.pk }}"
-      data-motif-id="{{ prediction.motif_id }}"
-      data-motif="{{ prediction.motif.libelle }}"
-      data-score="{% widthratio prediction.score_confiance 1 100 %}"
-      data-system-id="{{ prediction.systeme_a_corriger_predit_id|default:'' }}"
-      data-targets="{% if prediction.explication.systemes_a_corriger %}{{ prediction.explication.systemes_a_corriger|join:',' }}{% elif prediction.systeme_a_corriger_predit %}{{ prediction.systeme_a_corriger_predit.code_systeme }}{% endif %}"
-    ></span>
+    <span data-prediction-id="{{ prediction.pk }}" data-motif-id="{{ prediction.motif_id }}" data-motif="{{ prediction.motif.libelle }}" data-score="{% widthratio prediction.score_confiance 1 100 %}" data-system-id="{{ prediction.systeme_a_corriger_predit_id|default:'' }}" data-targets="{% if prediction.explication.systemes_a_corriger %}{{ prediction.explication.systemes_a_corriger|join:',' }}{% elif prediction.systeme_a_corriger_predit %}{{ prediction.systeme_a_corriger_predit.code_systeme }}{% endif %}"></span>
   {% endfor %}
 </div>
 {% endblock %}
-
 {% block scripts %}<script src="{% static 'supervision/validation-form.js' %}"></script>{% endblock %}
