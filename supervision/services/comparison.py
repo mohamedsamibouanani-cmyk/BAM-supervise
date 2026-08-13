@@ -1,5 +1,3 @@
-from collections import Counter
-
 from django.db import transaction
 from django.utils import timezone
 
@@ -167,16 +165,15 @@ def _compare_attribute_maps(campaign, systems, code_envoi, service_code, values)
         if len(set(normalized.values())) <= 1:
             continue
 
-        counts = Counter(normalized.values())
-        most_common_value, most_common_count = counts.most_common(1)[0]
-        has_unique_majority = most_common_count >= 2 and list(counts.values()).count(most_common_count) == 1
-        divergent = [s for s, value in normalized.items() if value != most_common_value] if has_unique_majority else []
-        gap_code = divergent[0] if len(divergent) == 1 else None
+        # Une différence de valeur est un constat neutre. Même si deux systèmes
+        # portent la même valeur et le troisième une autre, cela ne démontre pas
+        # laquelle est la valeur métier correcte. Aucun système n'est donc désigné
+        # automatiquement comme responsable avant décision du superviseur.
         details = _attribute_details(
             systems,
             vals,
-            gap_code,
-            mark_all_as_gap=gap_code is None,
+            gap_code=None,
+            mark_all_as_gap=True,
         )
         _create_anomaly(
             campaign,
@@ -187,7 +184,7 @@ def _compare_attribute_maps(campaign, systems, code_envoi, service_code, values)
             details,
             code_service=service_code,
             attribute=attr,
-            gap_system=systems[gap_code] if gap_code else None,
+            gap_system=None,
         )
 
 
