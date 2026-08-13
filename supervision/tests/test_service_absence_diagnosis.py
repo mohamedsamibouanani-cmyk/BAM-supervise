@@ -1,12 +1,14 @@
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from supervision.models import (
-    AttributDefinition, CampagneImport, CampagneSupervision, EnvoiSnapshot,
-    FichierImport, ServiceSnapshot, Systeme, Superviseur, ValeurAttributSnapshot,
+    AttributDefinition, CampagneImport, CampagneSupervision, ContactGroupe,
+    EnvoiSnapshot, FichierImport, GroupeResponsable, Notification, ServiceSnapshot,
+    Systeme, Superviseur, ValidationMotif, ValeurAttributSnapshot,
 )
 from supervision.services.comparison import run_campaign
+from supervision.services.notifications import send_validation_email
 from supervision.services.utils import stable_hash
 
 
@@ -53,7 +55,7 @@ class ServiceAbsenceDiagnosisTests(TestCase):
             ServiceSnapshot.objects.create(
                 envoi_snapshot=shipments[code],
                 code_service='30801',
-                libelle_service='Service test',
+                libelle_service='Notification destinataire',
                 ligne_source=2,
                 empreinte_service=stable_hash(code, 'LD875872621MA', '30801'),
             )
@@ -82,8 +84,6 @@ class ServiceAbsenceDiagnosisTests(TestCase):
         self.assertEqual(anomaly.systeme_ecart.code_systeme, 'SICOM')
 
         prediction = anomaly.predictions.get()
-        # SERVICE_ABSENT is only an internal technical classification required by
-        # the current routing/audit schema. It is explicitly hidden as a motif.
         self.assertEqual(prediction.motif.code_motif, 'SERVICE_ABSENT')
         self.assertEqual(prediction.systeme_a_corriger_predit.code_systeme, 'SICOM')
         self.assertEqual(prediction.explication['systemes_a_corriger'], ['SICOM'])
@@ -110,3 +110,45 @@ class ServiceAbsenceDiagnosisTests(TestCase):
         self.assertEqual(predictions[0].explication['role_diagnostic'], 'CONSTAT_SERVICE')
         self.assertEqual(predictions[0].explication['systemes_a_corriger'], ['SICOM'])
         self.assertFalse(predictions[0].explication['afficher_motif'])
+
+    @override_settings(
+        EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+        EMAIL_ALLOW_SIMULATED_DELIVERY=True,
+        DEFAULT_FROM_EMAIL='notifications@bam-supervise.ma',
+    )
+    def test_service_email_goes_to_missing_system_with_article_and_description(self):
+        campaign = self._campaign_with_missing_sicom_service()
+        anomaly = campaign.anomalies.get(
+            niveau='SERVICE', type_ecart='ABSENT', code_service='30801'
+        )
+        prediction = anomaly.predictions.get()
+        group = GroupeResponsable.objects.filter(
+            systeme=self.systems['SICOM'], actif=True
+        ).order_by('id').first()
+        ContactGroupe.objects.create(
+            groupe=group,
+            nom_complet='Collaborateur SICOM',
+            email='collaborateur.sicom@bam-supervise.ma',
+        )
+
+        self.assertEqual(Notification.objects.count(), 0)
+        validation = ValidationMotif.objects.create(
+            anomalie=anomaly,
+            prediction_retenue=prediction,
+            motif_final=prediction.motif,
+            systeme_a_corriger_final=self.systems['SICOM'],
+            superviseur=self.user,
+            decision=ValidationMotif.Decision.ACCEPTE,
+            commentaire='Renseigner le service.',
+            version_validation=1,
+            est_finale=True,
+        )
+        self.assertEqual(Notification.objects.count(), 0)
+        send_validation_email(validation)
+
+        notification = Notification.objects.get()
+        self.assertEqual(notification.groupe.systeme, self.systems['SICOM'])
+        self.assertIn('SERVICE À RENSEIGNER', notification.objet)
+        self.assertIn('ARTICLE : 30801', notification.message)
+        self.assertIn('DES_ARTICLE=Notification destinataire', notification.message)
+        self.assertIn('ARTICLE=30801', notification.message)
