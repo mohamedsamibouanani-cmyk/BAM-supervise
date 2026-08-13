@@ -1,4 +1,5 @@
 import csv
+from datetime import timedelta
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -354,7 +355,7 @@ def _decorate_activity(activity, maps):
 
 def _group_activities_by_day(activities):
     today = timezone.localdate()
-    yesterday = today - timezone.timedelta(days=1)
+    yesterday = today - timedelta(days=1)
     groups = []
     current = None
     for activity in activities:
@@ -419,4 +420,4 @@ def activity_list(request):
         'query_without_page': query_without_page.urlencode(),
         'query_without_type': query_without_type.urlencode(),
     }
-    return render(request, 'supervision/activity_list.html', context)
+    return render(request, 'supervision/activity_journal_page.html', context)
