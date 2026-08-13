@@ -189,6 +189,119 @@ def _build_envoi_retry_email(validation, system):
     return subject, body
 
 
+def _attribute_source_observations(anomaly, target_system):
+    """Return source values without inventing a reference when sources disagree."""
+    observations = []
+    for detail in anomaly.details.select_related('systeme').order_by('systeme__ordre_comparaison'):
+        if detail.systeme_id == target_system.pk or not detail.objet_present:
+            continue
+        raw = str(detail.valeur_brute or '').strip()
+        if anomaly.attribut_id and anomaly.attribut.sensible:
+            display_value = 'valeur masquée — consulter le système source'
+            comparison_value = f'SENSITIVE:{detail.systeme.code_systeme}'
+        else:
+            display_value = raw or '—'
+            comparison_value = raw
+        observations.append({
+            'systeme': detail.systeme.code_systeme,
+            'valeur': display_value,
+            'comparison_value': comparison_value,
+        })
+    return observations
+
+
+def _is_neutral_attribute_absence(validation):
+    anomaly = validation.anomalie
+    if (
+        anomaly.niveau != Anomalie.Niveau.ATTRIBUT
+        or anomaly.type_ecart != Anomalie.TypeEcart.ABSENT
+    ):
+        return False
+    if validation.motif_final.code_motif == 'ATTRIBUT_NON_SYNCHRONISE':
+        return True
+    if validation.prediction_retenue_id:
+        explanation = validation.prediction_retenue.explication or {}
+        return explanation.get('role_diagnostic') == 'CONSTAT_ATTRIBUT'
+    return False
+
+
+def _build_attribute_fill_email(validation, system):
+    """Ask the missing system to complete an attribute after supervisor validation."""
+    anomaly = validation.anomalie
+    field = anomaly.attribut.code_attribut if anomaly.attribut_id else 'ATTRIBUT'
+    observations = _attribute_source_observations(anomaly, system)
+    source_lines = [
+        f'- {item["systeme"]} : {item["valeur"]}'
+        for item in observations
+    ]
+
+    sensitive = bool(anomaly.attribut_id and anomaly.attribut.sensible)
+    exact_values = {
+        item['comparison_value']
+        for item in observations
+        if item['comparison_value'] not in ('', '—')
+    }
+
+    if sensitive:
+        instruction = (
+            f'L’attribut {field} est sensible. Pour des raisons de confidentialité, '
+            f'la valeur complète n’est pas transmise par e-mail. Merci de consulter le '
+            f'ou les systèmes sources indiqués ci-dessus et de renseigner la même valeur '
+            f'dans {system.code_systeme}.'
+        )
+    elif len(observations) == 1:
+        reference = observations[0]['valeur']
+        instruction = (
+            f'Merci de renseigner l’attribut {field} dans {system.code_systeme} '
+            f'avec la valeur observée dans le système source : {reference}.'
+        )
+    elif observations and len(exact_values) == 1:
+        reference = observations[0]['valeur']
+        instruction = (
+            f'Les systèmes sources présentent la même valeur. Merci de renseigner '
+            f'l’attribut {field} dans {system.code_systeme} avec la valeur : {reference}.'
+        )
+    elif observations:
+        instruction = (
+            f'Les systèmes sources présentent des valeurs différentes. BAM Supervise '
+            f'ne choisit pas automatiquement une valeur de référence. Merci de vérifier '
+            f'la valeur métier correcte avant de renseigner l’attribut {field} dans '
+            f'{system.code_systeme}.'
+        )
+    else:
+        instruction = (
+            f'Aucune valeur source exploitable n’a été retrouvée dans le dossier. '
+            f'Merci de vérifier la donnée source avant de renseigner l’attribut {field} '
+            f'dans {system.code_systeme}.'
+        )
+
+    subject = (
+        f'[BAM Supervise][{system.code_systeme}] ATTRIBUT À RENSEIGNER - {anomaly.code_envoi}'
+    )
+    body = (
+        f'Bonjour,\n\n'
+        f'Après validation du superviseur, BAM Supervise confirme qu’un attribut '
+        f'n’est pas synchronisé dans votre système.\n\n'
+        f'Code envoi : {anomaly.code_envoi}\n'
+        f'Service : {anomaly.code_service or "-"}\n'
+        f'Attribut : {field}\n'
+        f'Système où l’attribut manque : {system.code_systeme}\n'
+        f'Diagnostic validé : Attribut non synchronisé\n'
+        f'Aucun motif de format n’a été identifié.\n\n'
+        f'Valeur(s) observée(s) dans le ou les systèmes sources :\n'
+        + ('\n'.join(source_lines) if source_lines else '- aucune valeur source disponible')
+        + '\n\n'
+        + instruction
+        + '\n\n'
+        f'BAM Supervise contrôlera le résultat lors de la prochaine campagne : '
+        f'l’anomalie sera marquée résolue si l’attribut est désormais présent, '
+        f'sinon persistante.\n\n'
+        f'Commentaire du superviseur : {validation.commentaire or "-"}\n\n'
+        f'BAM Supervise'
+    )
+    return subject, body
+
+
 def build_email(validation, group, system):
     anomaly = validation.anomalie
     if anomaly.niveau == Anomalie.Niveau.SERVICE:
@@ -199,6 +312,9 @@ def build_email(validation, group, system):
         and validation.motif_final.code_motif == 'MOTIF_INCONNU'
     ):
         return _build_envoi_retry_email(validation, system)
+
+    if _is_neutral_attribute_absence(validation):
+        return _build_attribute_fill_email(validation, system)
 
     if anomaly.niveau == Anomalie.Niveau.ENVOI:
         element = f'Envoi {anomaly.code_envoi}'
