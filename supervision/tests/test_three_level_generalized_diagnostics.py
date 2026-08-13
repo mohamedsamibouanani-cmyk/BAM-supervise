@@ -128,13 +128,8 @@ class ThreeLevelGeneralizedDiagnosisTests(TestCase):
             code: self._shipment(files[code], 'E-N3-DECIMAL', code)
             for code in self.systems
         }
-        services = {code: self._service(shipments[code], code) for code in self.systems}
-        amount = AttributDefinition.objects.create(
-            code_attribut='PRIX_SIMULATION',
-            libelle='Prix simulation',
-            portee=AttributDefinition.Portee.SERVICE,
-            type_valeur=AttributDefinition.TypeValeur.NOMBRE,
-        )
+        services = {code: self._service(shipments[code], code, '30100') for code in self.systems}
+        amount = AttributDefinition.objects.get(code_attribut='MONTANT_CRBT')
         ServiceAttributRegle.objects.create(
             service_ref=None,
             attribut=amount,
@@ -173,13 +168,8 @@ class ThreeLevelGeneralizedDiagnosisTests(TestCase):
             code: self._shipment(files[code], 'E-N3-PHONE', code)
             for code in self.systems
         }
-        phone = AttributDefinition.objects.create(
-            code_attribut='TELEPHONE_DESTINATAIRE_TEST',
-            libelle='Téléphone test',
-            portee=AttributDefinition.Portee.ENVOI,
-            type_valeur=AttributDefinition.TypeValeur.TEXTE,
-            sensible=True,
-        )
+        services = {code: self._service(shipments[code], code, '30801') for code in self.systems}
+        phone = AttributDefinition.objects.get(code_attribut='TELEPHONE_NOTIFICATION')
         ServiceAttributRegle.objects.create(
             service_ref=None,
             attribut=phone,
@@ -194,7 +184,7 @@ class ThreeLevelGeneralizedDiagnosisTests(TestCase):
         raw_phone = '0612345678'
         for code in ('SMI', 'SICOM'):
             ValeurAttributSnapshot.objects.create(
-                envoi_snapshot=shipments[code],
+                service_snapshot=services[code],
                 attribut=phone,
                 valeur_brute=encrypt_sensitive(raw_phone),
                 valeur_normalisee=sensitive_fingerprint(raw_phone),
@@ -220,13 +210,8 @@ class ThreeLevelGeneralizedDiagnosisTests(TestCase):
             code: self._shipment(files[code], 'E-N3-NO-RULE', code)
             for code in self.systems
         }
-        services = {code: self._service(shipments[code], code) for code in self.systems}
-        amount = AttributDefinition.objects.create(
-            code_attribut='PRIX_SANS_REGLE',
-            libelle='Prix sans règle',
-            portee=AttributDefinition.Portee.SERVICE,
-            type_valeur=AttributDefinition.TypeValeur.NOMBRE,
-        )
+        services = {code: self._service(shipments[code], code, '30018') for code in self.systems}
+        amount = AttributDefinition.objects.get(code_attribut='MONTANT_VALEUR_DECLAREE')
         for code, raw in (('SMI', '3,12'), ('SICOM', '3.12')):
             ValeurAttributSnapshot.objects.create(
                 service_snapshot=services[code], attribut=amount,
@@ -246,4 +231,8 @@ class ThreeLevelGeneralizedDiagnosisTests(TestCase):
                     'FORMAT_ATTRIBUT_INCOMPATIBLE',
                 ]
             ).exists()
+        )
+        self.assertEqual(
+            anomaly.predictions.get().motif.code_motif,
+            'ATTRIBUT_NON_SYNCHRONISE',
         )
