@@ -12,6 +12,7 @@ from supervision.services.email_config import (
     EmailConfigurationError,
     validate_real_email_config,
 )
+from supervision.services.security import decrypt_sensitive
 
 
 class RoutingError(ValueError):
@@ -243,24 +244,54 @@ def _build_envoi_retry_email(validation, system):
     return subject, body
 
 
-def _attribute_source_observations(anomaly, target_system):
+def _attribute_observations(anomaly, excluded_system=None):
+    """Read the real source values only while building an email after validation.
+
+    Sensitive values remain encrypted in the database. They are decrypted in memory
+    here so the collaborator receives the exact value that must be corrected or filled.
+    """
     observations = []
-    for detail in anomaly.details.select_related('systeme').order_by('systeme__ordre_comparaison'):
-        if detail.systeme_id == target_system.pk or not detail.objet_present:
+    if not anomaly.attribut_id:
+        return observations
+
+    links = anomaly.campagne.imports.select_related('systeme', 'fichier_import').order_by(
+        'systeme__ordre_comparaison'
+    )
+    for link in links:
+        if excluded_system is not None and link.systeme_id == excluded_system.pk:
             continue
-        raw = str(detail.valeur_brute or '').strip()
-        if anomaly.attribut_id and anomaly.attribut.sensible:
-            display_value = 'valeur masquée — consulter le système source'
-            comparison_value = f'SENSITIVE:{detail.systeme.code_systeme}'
+        shipment = link.fichier_import.envois.filter(code_envoi=anomaly.code_envoi).first()
+        if not shipment:
+            continue
+
+        value = None
+        if anomaly.attribut.portee == 'ENVOI':
+            value = shipment.valeurs_attribut.filter(attribut=anomaly.attribut).first()
         else:
-            display_value = raw or '—'
-            comparison_value = raw
+            service = shipment.services.filter(
+                code_service=anomaly.code_service
+            ).order_by('numero_occurrence').first()
+            if service:
+                value = service.valeurs_attribut.filter(attribut=anomaly.attribut).first()
+
+        if value is None or value.est_vide:
+            continue
+
+        raw = value.valeur_brute or ''
+        display_value = decrypt_sensitive(raw) if anomaly.attribut.sensible else str(raw).strip()
         observations.append({
-            'systeme': detail.systeme.code_systeme,
-            'valeur': display_value,
-            'comparison_value': comparison_value,
+            'systeme': link.systeme.code_systeme,
+            'valeur': display_value or '—',
+            'comparison_value': display_value or '',
         })
     return observations
+
+
+def _attribute_value_for_system(anomaly, system):
+    for item in _attribute_observations(anomaly):
+        if item['systeme'] == system.code_systeme:
+            return item['valeur']
+    return '—'
 
 
 def _is_neutral_attribute_absence(validation):
@@ -311,24 +342,16 @@ def _is_neutral_attribute_difference(validation):
 def _build_attribute_fill_email(validation, system):
     anomaly = validation.anomalie
     field = anomaly.attribut.code_attribut if anomaly.attribut_id else 'ATTRIBUT'
-    observations = _attribute_source_observations(anomaly, system)
+    observations = _attribute_observations(anomaly, excluded_system=system)
     source_lines = [f'- {item["systeme"]} : {item["valeur"]}' for item in observations]
 
-    sensitive = bool(anomaly.attribut_id and anomaly.attribut.sensible)
     exact_values = {
         item['comparison_value']
         for item in observations
         if item['comparison_value'] not in ('', '—')
     }
 
-    if sensitive:
-        instruction = (
-            f'L’attribut {field} est sensible. Pour des raisons de confidentialité, '
-            f'la valeur complète n’est pas transmise par e-mail. Merci de consulter le '
-            f'ou les systèmes sources indiqués ci-dessus et de renseigner la même valeur '
-            f'dans {system.code_systeme}.'
-        )
-    elif len(observations) == 1:
+    if len(observations) == 1:
         reference = observations[0]['valeur']
         instruction = (
             f'Merci de renseigner l’attribut {field} dans {system.code_systeme} '
@@ -387,8 +410,7 @@ def _build_attribute_format_email(validation, system):
     causes = _causes_for_system(validation, system)
     constats = [cause['constat'] for cause in causes if cause['constat']]
     detail = ' ; '.join(dict.fromkeys(constats)) or 'Format source non conforme'
-    value_detail = anomaly.details.filter(systeme=system).first()
-    observed_value = value_detail.valeur_brute if value_detail and value_detail.valeur_brute else '—'
+    observed_value = _attribute_value_for_system(anomaly, system)
 
     subject = (
         f'[BAM Supervise][{system.code_systeme}] FORMAT ATTRIBUT À CORRIGER - {anomaly.code_envoi}'
@@ -415,9 +437,10 @@ def _build_attribute_format_email(validation, system):
 def _build_attribute_difference_email(validation, system):
     anomaly = validation.anomalie
     field = anomaly.attribut.code_attribut if anomaly.attribut_id else 'ATTRIBUT'
+    observations = _attribute_observations(anomaly)
     value_lines = [
-        f'- {detail.systeme.code_systeme} : {detail.valeur_brute or "—"}'
-        for detail in anomaly.details.select_related('systeme').order_by('systeme__ordre_comparaison')
+        f'- {item["systeme"]} : {item["valeur"]}'
+        for item in observations
     ]
     subject = (
         f'[BAM Supervise][{system.code_systeme}] VALEUR ATTRIBUT À VÉRIFIER - {anomaly.code_envoi}'
@@ -431,7 +454,7 @@ def _build_attribute_difference_email(validation, system):
         f'Attribut : {field}\n'
         f'Système choisi par le superviseur pour correction : {system.code_systeme}\n\n'
         f'Valeurs observées :\n'
-        + '\n'.join(value_lines)
+        + ('\n'.join(value_lines) if value_lines else '- aucune valeur disponible')
         + '\n\n'
         f'Aucune règle métier n’est encore configurée pour déterminer automatiquement '
         f'la valeur de référence. Le système à traiter a donc été confirmé par le superviseur.\n'
