@@ -1,5 +1,5 @@
 {% extends 'supervision/base.html' %}
-{% load static %}
+{% load static anomaly_display %}
 {% block title %}Anomalie {{ anomaly.code_envoi }} · BAM Supervise{% endblock %}
 {% block head %}
 <link rel="stylesheet" href="{% static 'supervision/anomaly-detail.css' %}">
@@ -58,7 +58,7 @@
                       <span class="system-state-result is-gap"><i class="bi bi-x-circle-fill"></i> Absent</span>
                     {% endif %}
                   </td>
-                  {% if anomaly.type_ecart == 'DIFFERENT' %}<td class="system-state-note"><strong>{{ d.valeur_brute|default:'—' }}</strong></td>{% endif %}
+                  {% if anomaly.type_ecart == 'DIFFERENT' %}<td class="system-state-note"><strong>{% display_anomaly_value anomaly d %}</strong></td>{% endif %}
                 </tr>
                 {% endfor %}
               </tbody>
