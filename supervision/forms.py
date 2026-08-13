@@ -52,7 +52,12 @@ class CampaignImportForm(forms.Form):
         return cleaned
 
 
-class ValidationMotifForm(forms.Form):
+class _LegacyValidationMotifForm(forms.Form):
+    """Ancien formulaire conservé uniquement pour compatibilité de code.
+
+    L'application expose désormais MultiCauseValidationForm plus bas, qui correspond
+    au template et aux règles métier actuelles.
+    """
     prediction = forms.ModelChoiceField(
         queryset=PredictionMotif.objects.none(), required=False, label='Diagnostic proposé',
         widget=forms.Select(attrs={'class': 'form-select'}),
@@ -94,15 +99,6 @@ class ValidationMotifForm(forms.Form):
         self.fields['prediction'].queryset = anomaly.predictions.select_related(
             'motif', 'systeme_a_corriger_predit'
         ).order_by('rang')
-        self.fields['prediction'].label_from_instance = (
-            lambda p: f'#{p.rang} {p.motif.libelle} ({float(p.score_confiance)*100:.0f}%)'
-        )
-        if anomaly.niveau == anomaly.Niveau.SERVICE:
-            self.fields['decision'].choices = [
-                ('ACCEPTE', 'Confirmer'),
-                ('MODIFIE', 'Changer le système concerné'),
-                ('INCONNU', 'À investiguer'),
-            ]
 
     def clean(self):
         cleaned = super().clean()
@@ -110,10 +106,6 @@ class ValidationMotifForm(forms.Form):
         decision = cleaned.get('decision')
         motif = cleaned.get('motif_final')
         nouveau_motif = (cleaned.get('nouveau_motif') or '').strip()
-
-        # Niveau SERVICE : aucun motif métier n'est demandé au superviseur. Le motif
-        # SERVICE_ABSENT est uniquement une classification technique interne pour
-        # conserver le routage et la traçabilité avec le schéma actuel.
         if self.anomaly.niveau == self.anomaly.Niveau.SERVICE:
             technical = Motif.objects.filter(code_motif='SERVICE_ABSENT', actif=True).first()
             if not technical:
@@ -129,7 +121,6 @@ class ValidationMotifForm(forms.Form):
             if not cleaned.get('systeme_a_corriger_final'):
                 raise forms.ValidationError('Sélectionnez le système où le service est désynchronisé.')
             return cleaned
-
         if decision == 'ACCEPTE':
             if prediction is None:
                 prediction = self.anomaly.predictions.select_related(
@@ -153,7 +144,6 @@ class ValidationMotifForm(forms.Form):
                 cleaned['motif_final'] = None
             elif not motif:
                 raise forms.ValidationError('Sélectionnez un motif existant ou saisissez la cause réelle.')
-
         if not cleaned.get('systeme_a_corriger_final'):
             raise forms.ValidationError('Sélectionnez le système responsable.')
         return cleaned
@@ -168,3 +158,8 @@ class ContactGroupeForm(forms.ModelForm):
             'email': forms.EmailInput(attrs={'class': 'form-control', 'placeholder': 'prenom.nom@example.ma'}),
             'fonction': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Fonction ou spécialité'}),
         }
+
+
+# Le template de validation et les règles métier courantes reposent sur ce formulaire.
+from .forms_anomaly import MultiCauseValidationForm
+ValidationMotifForm = MultiCauseValidationForm
