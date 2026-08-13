@@ -78,10 +78,13 @@ class MultiCauseValidationForm(forms.Form):
             ]
 
         def label_for(prediction):
+            explanation = prediction.explication or {}
             if anomaly.niveau == anomaly.Niveau.SERVICE:
-                targets = (prediction.explication or {}).get('systemes_a_corriger') or []
+                targets = explanation.get('systemes_a_corriger') or []
                 suffix = f' · absent dans {", ".join(targets)}' if targets else ''
                 return f'Service {anomaly.code_service} non synchronisé{suffix}'
+            if explanation.get('role_diagnostic') == 'CONSTAT_ATTRIBUT':
+                return prediction.motif.libelle
             score = float(prediction.score_confiance) * 100
             return f'{prediction.motif.libelle} · {score:.0f}%'
 
