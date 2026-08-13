@@ -53,6 +53,7 @@ class Command(BaseCommand):
             ('FORMAT_TEXTE_INVALIDE', 'Format de texte invalide', 'ENVOI', 'FORMAT', ''),
             ('CHAMP_SOURCE_MANQUANT', 'Champ source manquant ou vide', 'ENVOI', 'DONNEE', ''),
             ('CHAMP_OBLIGATOIRE_VIDE', 'Champ obligatoire vide', 'ATTRIBUT', 'DONNEE', ''),
+            ('ATTRIBUT_NON_SYNCHRONISE', 'Attribut non synchronisé', 'ATTRIBUT', 'SYNCHRONISATION', ''),
             ('ATTRIBUT_DIFFERENT', 'Valeur d’attribut non synchronisée', 'ATTRIBUT', 'SYNCHRONISATION', ''),
             # SERVICE_ABSENT reste une classification technique interne nécessaire
             # au routage/à l’audit. L’interface ne la présente pas comme un motif.
