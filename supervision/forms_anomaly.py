@@ -111,6 +111,8 @@ class MultiCauseValidationForm(forms.Form):
                 ('INCONNU', 'À investiguer'),
             ]
             self.fields['decision'].initial = 'MODIFIE'
+            self.initial.pop('systeme_a_corriger_final', None)
+            self.fields['systeme_a_corriger_final'].initial = None
             # La cause reste un constat technique tant que la règle métier de
             # sélection de la valeur de référence n'a pas été validée.
             self.fields['motif_final'].widget = forms.HiddenInput()
@@ -164,6 +166,10 @@ class MultiCauseValidationForm(forms.Form):
                     target = Systeme.objects.filter(code_systeme=codes[0], actif=True).first()
                     if target:
                         self.fields['systeme_a_corriger_final'].initial = target.pk
+
+        if difference_constat:
+            self.initial.pop('systeme_a_corriger_final', None)
+            self.fields['systeme_a_corriger_final'].initial = None
 
     def _clean_service(self, cleaned):
         decision = cleaned.get('decision')
