@@ -6,9 +6,8 @@ from django.urls import reverse
 
 from supervision.models import (
     Anomalie, CampagneSupervision, GroupeResponsable, Motif, PredictionMotif,
-    RegleMetier, Systeme, Superviseur,
+    Systeme, Superviseur,
 )
-from supervision.services.analysis import analyze_anomaly
 
 
 @override_settings(
@@ -117,30 +116,44 @@ class MultiCauseCorrectionTests(TestCase):
         self.anomaly.refresh_from_db()
         self.assertEqual(self.anomaly.statut, Anomalie.Statut.NOTIFIEE)
 
-    def test_rule_engine_keeps_more_than_three_simultaneous_causes(self):
-        self.anomaly.predictions.all().delete()
-        for index in range(1, 5):
+    def test_supervisor_can_validate_more_than_three_simultaneous_causes(self):
+        extra_predictions = []
+        for index in (3, 4):
             motif = Motif.objects.create(
                 code_motif=f'CAUSE_{index}',
                 libelle=f'Cause métier {index}',
                 niveau_applicable='ENVOI',
                 categorie='DONNEE',
+                champ_typique=f'CHAMP_{index}',
             )
-            RegleMetier.objects.create(
-                motif_suggere=motif,
-                code_regle=f'RULE_{index}',
-                niveau_anomalie='ENVOI',
-                type_controle='AUTRE',
-                expression_regle={},
-                seuil_confiance=Decimal('0.9000'),
-                priorite=index,
-                actif=True,
-            )
+            extra_predictions.append(PredictionMotif.objects.create(
+                anomalie=self.anomaly,
+                source_prediction=PredictionMotif.Source.REGLE,
+                motif=motif,
+                systeme_a_corriger_predit=self.smi,
+                rang=index,
+                score_confiance=Decimal('0.8000'),
+                explication={
+                    'systemes_a_corriger': ['SMI'],
+                    'indices': [
+                        {
+                            'systeme': 'SMI',
+                            'champ': f'CHAMP_{index}',
+                            'constat': 'Champ vide ou absent dans la source',
+                        }
+                    ],
+                },
+            ))
 
-        analyze_anomaly(self.anomaly)
+        all_predictions = [self.pred_ville, self.pred_tel, *extra_predictions]
+        response = self.client.post(reverse('anomaly_validate', args=[self.anomaly.pk]), {
+            'predictions': [prediction.pk for prediction in all_predictions],
+            'prediction': self.pred_ville.pk,
+            'multi_cause_mode': '1',
+            'decision': 'ACCEPTE',
+            'systeme_a_corriger_final': self.smi.pk,
+            'commentaire': '',
+        })
 
-        self.assertEqual(self.anomaly.predictions.count(), 4)
-        self.assertEqual(
-            list(self.anomaly.predictions.order_by('rang').values_list('rang', flat=True)),
-            [1, 2, 3, 4],
-        )
+        self.assertRedirects(response, reverse('anomaly_detail', args=[self.anomaly.pk]))
+        self.assertEqual(self.anomaly.validations.filter(est_finale=True).count(), 4)
