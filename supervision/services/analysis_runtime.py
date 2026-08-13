@@ -93,7 +93,7 @@ def _append_issue(bucket, field, system_code, constat, service_code=''):
 
 
 def _mandatory_missing_issues(anomaly):
-    """Phase 1: inspect every configured mandatory field before any format check."""
+    """N1 case 1: inspect every configured mandatory field in source systems."""
     issues = defaultdict(dict)
     rules = list(_required_target_rules(anomaly))
 
@@ -147,7 +147,7 @@ def _mandatory_missing_issues(anomaly):
 
 
 def _format_issues(anomaly):
-    """Phase 2: only reached when no mandatory field is missing."""
+    """Legacy helper kept for compatibility; N1 no longer creates a format motif."""
     issues = defaultdict(dict)
     target_system = anomaly.systeme_ecart
 
@@ -251,13 +251,13 @@ def _append_unknown_envoi_prediction(anomaly):
             'systemes_sources_candidates': candidates,
             'systeme_source_a_confirmer': source is None,
             'role_diagnostic': 'MOTIF_NON_IDENTIFIABLE',
-            'action_apres_validation': 'RELANCER_ENVOI_SOURCE',
+            'action_apres_validation': 'RESSAISIR_ENVOI_SOURCE',
         },
     )
 
 
 def _analyze_envoi_strict(anomaly):
-    """Strict N1 order: mandatory fields, then formats, then unknown reason."""
+    """N1 has exactly two business outcomes: mandatory field missing, otherwise unknown."""
     PredictionMotif.objects.filter(anomalie=anomaly).delete()
 
     mandatory = _mandatory_missing_issues(anomaly)
@@ -279,26 +279,7 @@ def _analyze_envoi_strict(anomaly):
                 'CHAMP_OBLIGATOIRE_ABSENT',
             )
     else:
-        formats = _format_issues(anomaly)
-        if formats:
-            motif = Motif.objects.filter(
-                code_motif='FORMAT_CHAMP_ENVOI_NON_RESPECTE', actif=True
-            ).first()
-            rank = 1
-            for field in sorted(formats):
-                evidence = formats[field]
-                rank = _create_envoi_prediction(
-                    anomaly,
-                    rank,
-                    motif,
-                    field,
-                    f'Le format du champ {field} n’est pas respecté',
-                    evidence,
-                    Decimal('0.9500'),
-                    'FORMAT_CHAMP_NON_RESPECTE',
-                )
-        else:
-            _append_unknown_envoi_prediction(anomaly)
+        _append_unknown_envoi_prediction(anomaly)
 
     if anomaly.predictions.exists() and anomaly.statut == anomaly.Statut.DETECTEE:
         anomaly.statut = anomaly.Statut.ANALYSEE
@@ -444,7 +425,7 @@ def _has_attribute_format_cause(anomaly):
 
 
 def analyze_anomaly(anomaly):
-    """Apply strict N1 analysis and deterministic N2/N3 routing rules."""
+    """Apply the two N1 outcomes and deterministic N2/N3 routing rules."""
     if anomaly.niveau == Anomalie.Niveau.ENVOI:
         _analyze_envoi_strict(anomaly)
         return
