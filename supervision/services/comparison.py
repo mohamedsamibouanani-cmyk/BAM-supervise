@@ -13,6 +13,23 @@ from .security import masked_sensitive_value
 from .utils import stable_hash
 
 
+# Le niveau N3 BAM porte uniquement sur trois concepts métier.
+# Les alias historiques restent acceptés pour les anciens jeux de données.
+N3_BUSINESS_ATTRIBUTE_CODES = {
+    'MONTANT_CRBT', 'CRBT',
+    'TELEPHONE_NOTIFICATION', 'TELEPHONE',
+    'MONTANT_VALEUR_DECLAREE', 'VALEUR_DECLAREE',
+}
+
+
+def is_n3_business_attribute(attribute):
+    return bool(
+        attribute
+        and str(attribute.code_attribut or '').strip().upper()
+        in N3_BUSINESS_ATTRIBUTE_CODES
+    )
+
+
 class ComparisonError(ValueError):
     pass
 
@@ -133,6 +150,8 @@ def _compare_attribute_maps(campaign, systems, code_envoi, service_code, values)
     attr_ids = set().union(*(set(m) for m in values.values()))
     for attr_id in attr_ids:
         attr = AttributDefinition.objects.get(pk=attr_id)
+        if not is_n3_business_attribute(attr):
+            continue
         vals = {s: values[s].get(attr_id) for s in systems}
         nonempty_systems = [s for s, v in vals.items() if v and not v.est_vide]
         missing_systems = [s for s in systems if not vals[s] or vals[s].est_vide]
