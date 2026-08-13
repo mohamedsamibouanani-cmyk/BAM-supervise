@@ -4,8 +4,10 @@ import joblib
 
 from supervision.models import (
     AttributDefinition, EnvoiSnapshot, ExempleApprentissage, ModeleML, Motif,
-    PredictionMotif, RegleMetier, Systeme,
+    PredictionMotif, RegleMetier, ServiceAttributRegle, Systeme,
 )
+from .format_rules import evaluate_validation_rule
+from .security import decrypt_sensitive
 
 
 def _candidate_source_envois(rule, anomaly):
@@ -17,7 +19,10 @@ def _candidate_source_envois(rule, anomaly):
         links = links.filter(systeme_id__in=present_system_ids)
     result = []
     for link in links:
-        envoi = EnvoiSnapshot.objects.filter(fichier_import=link.fichier_import, code_envoi=anomaly.code_envoi).first()
+        envoi = EnvoiSnapshot.objects.filter(
+            fichier_import=link.fichier_import,
+            code_envoi=anomaly.code_envoi,
+        ).first()
         if envoi:
             result.append((link.systeme, envoi))
     return result
@@ -49,19 +54,11 @@ def _structural_issues(anomaly, field):
     issues = []
     for system, shipment in _candidate_source_envois(None, anomaly):
         if field == 'NUM_COMMANDE' and not shipment.num_commande.strip():
-            issues.append({'systeme': system.code_systeme, 'champ': field, 'constat': 'Champ obligatoire vide'})
-        if field in {'ARTICLE', 'DES_ARTICLE'}:
-            services = list(shipment.services.all())
-            if field == 'ARTICLE' and not services:
-                issues.append({'systeme': system.code_systeme, 'champ': field, 'constat': 'Aucun service renseigné'})
-            for service in services:
-                value = service.code_service if field == 'ARTICLE' else service.libelle_service
-                if value and value.strip().isdigit():
-                    issues.append({
-                        'systeme': system.code_systeme,
-                        'champ': field,
-                        'constat': 'Le champ contient uniquement des chiffres',
-                    })
+            issues.append({
+                'systeme': system.code_systeme,
+                'champ': field,
+                'constat': 'Champ vide ou absent dans la source',
+            })
     return issues
 
 
@@ -79,7 +76,10 @@ def _rule_matches(rule, anomaly):
             return any(v is not None and v.format_source_conforme is False for _, v in values)
         if rule.type_controle == 'DOMAINE':
             allowed = set(expr.get('allowed', []))
-            return any(v is not None and v.valeur_normalisee not in allowed for _, v in values if v.valeur_normalisee)
+            return any(
+                v is not None and v.valeur_normalisee not in allowed
+                for _, v in values if v.valeur_normalisee
+            )
     details = list(anomaly.details.all())
     if rule.type_controle == 'VIDE':
         return any(not d.objet_present for d in details)
@@ -128,10 +128,7 @@ def _diagnostic_evidence(rule, anomaly):
 
 
 def _evidence_system_codes(evidence):
-    """Extract systems that actually contain a source-side issue from diagnostic evidence."""
-    issue_markers = (
-        'vide', 'absent', 'non conforme', 'aucun service', 'uniquement des chiffres',
-    )
+    issue_markers = ('vide', 'absent', 'non conforme', 'incompatible', 'aucun service')
     codes = []
     for item in evidence or []:
         constat = str(item.get('constat') or '').lower()
@@ -141,11 +138,21 @@ def _evidence_system_codes(evidence):
     return codes
 
 
+def _stored_target_codes(prediction):
+    codes = []
+    explanation = prediction.explication or {}
+    for code in explanation.get('systemes_a_corriger') or []:
+        normalized = str(code or '').strip().upper()
+        if normalized and normalized not in codes:
+            codes.append(normalized)
+    if not codes and prediction.systeme_a_corriger_predit_id:
+        codes.append(prediction.systeme_a_corriger_predit.code_systeme)
+    return codes
+
+
 def _correction_system_codes(rule, anomaly):
-    """Return every system that contains the detected cause, without hard-coded system names."""
     if rule.flux_id:
         return [rule.flux.systeme_source.code_systeme]
-
     evidence = _diagnostic_evidence(rule, anomaly)
     codes = _evidence_system_codes(evidence)
     if codes:
@@ -156,42 +163,27 @@ def _correction_system_codes(rule, anomaly):
 
 
 def prediction_target_codes(prediction):
-    """Resolve responsible systems from current evidence, not only persisted prediction metadata.
-
-    Rule-based predictions are recomputed against the campaign snapshots. This protects
-    older dossiers created before routing fixes: the observed system is never trusted as
-    the correction target when source evidence identifies other systems.
-    """
+    explanation = prediction.explication or {}
+    if explanation.get('diagnostic_dynamique') or explanation.get('role_diagnostic') == 'CONSTAT_SERVICE':
+        evidence_codes = _evidence_system_codes(explanation.get('indices') or [])
+        return evidence_codes or _stored_target_codes(prediction)
     if prediction.source_prediction == PredictionMotif.Source.REGLE and prediction.regle_id:
         rule = prediction.regle
         if _rule_matches(rule, prediction.anomalie):
             return _correction_system_codes(rule, prediction.anomalie)
         return []
-
-    explanation = prediction.explication or {}
     evidence_codes = _evidence_system_codes(explanation.get('indices') or [])
     if evidence_codes:
         return evidence_codes
-
-    codes = []
-    for code in explanation.get('systemes_a_corriger') or []:
-        normalized = str(code or '').strip().upper()
-        if normalized and normalized not in codes:
-            codes.append(normalized)
-    if not codes and prediction.systeme_a_corriger_predit_id:
-        codes.append(prediction.systeme_a_corriger_predit.code_systeme)
-    return codes
+    return _stored_target_codes(prediction)
 
 
 def refresh_prediction_routing(anomaly):
-    """Refresh persisted routing metadata without deleting predictions or validation history."""
     predictions = anomaly.predictions.select_related(
         'regle__flux__systeme_source', 'regle__flux__systeme_destination',
         'regle__attribut', 'systeme_a_corriger_predit',
     ).all()
     for prediction in predictions:
-        if prediction.source_prediction != PredictionMotif.Source.REGLE or not prediction.regle_id:
-            continue
         codes = prediction_target_codes(prediction)
         target = Systeme.objects.filter(code_systeme=codes[0], actif=True).first() if codes else None
         explanation = dict(prediction.explication or {})
@@ -215,7 +207,6 @@ def _learned_signature(anomaly):
 
 
 def _append_learned_predictions(anomaly, rank, used_motif_ids):
-    """Reuse validated human decisions before relying on an external ML model."""
     signature = _learned_signature(anomaly)
     examples = (
         ExempleApprentissage.objects.filter(eligible=True)
@@ -250,19 +241,16 @@ def _append_learned_predictions(anomaly, rank, used_motif_ids):
     return rank
 
 
-def _service_absence_fallback_rule():
-    """Inactive structural rule used only after source-side rules found no concrete cause."""
-    motif = Motif.objects.filter(code_motif='SERVICE_ABSENT', actif=True).first()
-    if not motif:
-        return None
+def _generic_rule(motif, level, code_suffix, type_control='AUTRE'):
+    code = f'DYNAMIC_{level}_{code_suffix}'[:80]
     rule, _ = RegleMetier.objects.get_or_create(
-        code_regle='FALLBACK_SERVICE_ABSENT',
+        code_regle=code,
         defaults={
             'motif_suggere': motif,
-            'niveau_anomalie': 'SERVICE',
-            'type_controle': 'VIDE',
-            'expression_regle': {'type_ecart': 'ABSENT'},
-            'seuil_confiance': Decimal('0.9800'),
+            'niveau_anomalie': level,
+            'type_controle': type_control,
+            'expression_regle': {},
+            'seuil_confiance': Decimal('0.8000'),
             'priorite': 9900,
             'actif': False,
         },
@@ -270,107 +258,278 @@ def _service_absence_fallback_rule():
     return rule
 
 
-def _append_service_absence_prediction(anomaly, rank):
-    """Diagnose a missing service only when no stronger source-side cause was found."""
-    if rank != 1 or anomaly.niveau != anomaly.Niveau.SERVICE or anomaly.type_ecart != anomaly.TypeEcart.ABSENT:
-        return rank
+def _motif_for_empty_attribute(attribute):
+    code = attribute.code_attribut.upper()
+    if 'VILLE' in code:
+        return Motif.objects.filter(code_motif='VILLE_MANQUANTE', actif=True).first()
+    if 'TELEPHONE' in code:
+        return Motif.objects.filter(code_motif='TELEPHONE_MANQUANT', actif=True).first()
+    return Motif.objects.filter(code_motif='CHAMP_SOURCE_MANQUANT', actif=True).first()
 
-    rule = _service_absence_fallback_rule()
-    if not rule or not _rule_matches(rule, anomaly):
-        return rank
 
-    evidence = _diagnostic_evidence(rule, anomaly)
+def _motif_for_envoi_format(attribute):
+    if 'TELEPHONE' in attribute.code_attribut.upper():
+        return Motif.objects.filter(code_motif='FORMAT_TELEPHONE_INVALIDE', actif=True).first()
+    return Motif.objects.filter(code_motif='FORMAT_SOURCE_INCOMPATIBLE', actif=True).first()
+
+
+def _motif_for_attribute_format(attribute):
+    if attribute.type_valeur == AttributDefinition.TypeValeur.NOMBRE:
+        return Motif.objects.filter(code_motif='FORMAT_MONTANT_INCOMPATIBLE', actif=True).first()
+    return Motif.objects.filter(code_motif='FORMAT_ATTRIBUT_INCOMPATIBLE', actif=True).first()
+
+
+def _target_validation_rule(attribute, target_system, service_ref=None):
+    if not target_system:
+        return None
+    rules = ServiceAttributRegle.objects.filter(
+        attribut=attribute, systeme=target_system, actif=True,
+    ).select_related('service_ref', 'systeme')
+    if service_ref is not None:
+        exact = rules.filter(service_ref=service_ref).first()
+        if exact:
+            return exact
+    return rules.filter(service_ref__isnull=True).first()
+
+
+def _plain_value(value):
+    raw = value.valeur_brute or ''
+    if value.attribut.sensible and raw:
+        return decrypt_sensitive(raw)
+    return raw
+
+
+def _target_format_issue(value, target_rule):
+    if not target_rule or not target_rule.regle_validation or value.est_vide:
+        return None, ''
+    return evaluate_validation_rule(_plain_value(value), value.attribut, target_rule.regle_validation)
+
+
+def _create_dynamic_prediction(anomaly, rank, motif, evidence, score, field, message, role='CAUSE_ACTIVE'):
+    if not motif or not evidence:
+        return rank
     target_codes = _evidence_system_codes(evidence)
     if not target_codes:
         return rank
-
-    present_codes = list(
-        anomaly.details.filter(objet_present=True)
-        .select_related('systeme')
-        .order_by('systeme__ordre_comparaison')
-        .values_list('systeme__code_systeme', flat=True)
-    )
     predicted_system = Systeme.objects.filter(code_systeme=target_codes[0], actif=True).first()
-    if predicted_system is None:
+    if not predicted_system:
         return rank
-
-    service_label = anomaly.code_service or 'concerné'
-    present_text = ', '.join(present_codes) if present_codes else 'les autres systèmes'
-    missing_text = ', '.join(target_codes)
+    rule = _generic_rule(motif, anomaly.niveau, motif.code_motif)
     PredictionMotif.objects.create(
         anomalie=anomaly,
         source_prediction=PredictionMotif.Source.REGLE,
         regle=rule,
-        motif=rule.motif_suggere,
+        motif=motif,
         systeme_a_corriger_predit=predicted_system,
         rang=rank,
-        score_confiance=rule.seuil_confiance,
+        score_confiance=score,
         explication={
-            'regle': rule.code_regle,
-            'type_controle': rule.type_controle,
+            'diagnostic_dynamique': True,
+            'attribut_analyse': field,
             'indices': evidence,
-            'message': (
-                f'Le service {service_label} est présent dans {present_text} '
-                f'et absent dans {missing_text}. Aucun autre défaut source prioritaire n’a été identifié.'
-            ),
+            'message': message,
             'systemes_a_corriger': target_codes,
-            'role_diagnostic': 'CAUSE_ACTIVE',
+            'role_diagnostic': role,
         },
     )
     return rank + 1
 
 
-def analyze_anomaly(anomaly):
-    PredictionMotif.objects.filter(anomalie=anomaly).delete()
-    rank = 1
-    used_motif_ids = set()
-    rules = RegleMetier.objects.filter(
-        actif=True,
-        niveau_anomalie=anomaly.niveau,
-    ).select_related(
-        'motif_suggere', 'flux__systeme_source', 'flux__systeme_destination', 'attribut'
+def _append_all_fields_envoi_diagnostics(anomaly, rank):
+    if anomaly.niveau != anomaly.Niveau.ENVOI or anomaly.type_ecart != anomaly.TypeEcart.ABSENT:
+        return rank
+    target_system = anomaly.systeme_ecart
+    grouped = {}
+
+    def add_issue(kind, motif, field, system_code, constat, score):
+        if not motif:
+            return
+        key = (kind, motif.pk, field, constat)
+        bucket = grouped.setdefault(key, {'motif': motif, 'field': field, 'score': score, 'evidence': []})
+        bucket['score'] = max(bucket['score'], score)
+        bucket['evidence'].append({'systeme': system_code, 'champ': field, 'constat': constat})
+
+    for system, shipment in _candidate_source_envois(None, anomaly):
+        if not shipment.num_commande.strip():
+            motif = Motif.objects.filter(code_motif='CHAMP_SOURCE_MANQUANT', actif=True).first()
+            add_issue('EMPTY', motif, 'NUM_COMMANDE', system.code_systeme, 'Champ vide ou absent dans la source', Decimal('0.9000'))
+
+        services = list(shipment.services.select_related('service_ref').prefetch_related('valeurs_attribut__attribut'))
+        if not services:
+            motif = Motif.objects.filter(code_motif='CHAMP_SOURCE_MANQUANT', actif=True).first()
+            add_issue('EMPTY', motif, 'ARTICLE', system.code_systeme, 'Aucun service renseigné dans la source', Decimal('0.8000'))
+
+        value_contexts = [(value, None) for value in shipment.valeurs_attribut.select_related('attribut').all()]
+        for service in services:
+            for value in service.valeurs_attribut.select_related('attribut').all():
+                value_contexts.append((value, service.service_ref))
+
+        for value, service_ref in value_contexts:
+            attribute = value.attribut
+            field = attribute.code_attribut
+            target_rule = _target_validation_rule(attribute, target_system, service_ref)
+            if value.est_vide:
+                motif = _motif_for_empty_attribute(attribute)
+                score = Decimal('0.9500') if target_rule and target_rule.obligatoire else Decimal('0.7000')
+                label = 'Champ obligatoire vide dans la source' if target_rule and target_rule.obligatoire else 'Champ vide ou absent dans la source'
+                add_issue('EMPTY', motif, field, system.code_systeme, label, score)
+                continue
+            if value.format_source_conforme is False:
+                add_issue('FORMAT_SOURCE', _motif_for_envoi_format(attribute), field, system.code_systeme, 'Format source non conforme', Decimal('0.9000'))
+            compatible, reason = _target_format_issue(value, target_rule)
+            if compatible is False:
+                target_code = target_system.code_systeme if target_system else 'le système cible'
+                constat = f'Format potentiellement incompatible avec {target_code}'
+                if reason:
+                    constat += f' : {reason}'
+                add_issue('FORMAT_CIBLE', _motif_for_envoi_format(attribute), field, system.code_systeme, constat, Decimal('0.9200'))
+
+    for (_kind, _motif_id, field, _constat), item in grouped.items():
+        systems = ', '.join(dict.fromkeys(index['systeme'] for index in item['evidence']))
+        rank = _create_dynamic_prediction(
+            anomaly, rank, item['motif'], item['evidence'], item['score'], field,
+            f'{field} nécessite une vérification dans {systems}.',
+        )
+    return rank
+
+
+def _attribute_source_values(anomaly):
+    if not anomaly.attribut_id:
+        return []
+    values = []
+    for system, shipment in _candidate_source_envois(None, anomaly):
+        if anomaly.attribut.portee == AttributDefinition.Portee.ENVOI:
+            value = shipment.valeurs_attribut.filter(attribut=anomaly.attribut).first()
+            if value:
+                values.append((system, value, None))
+            continue
+        services = shipment.services.all()
+        if anomaly.code_service:
+            services = services.filter(code_service=anomaly.code_service)
+        for service in services.select_related('service_ref'):
+            value = service.valeurs_attribut.filter(attribut=anomaly.attribut).first()
+            if value:
+                values.append((system, value, service.service_ref))
+    return values
+
+
+def _append_attribute_format_diagnostics(anomaly, rank):
+    if anomaly.niveau != anomaly.Niveau.ATTRIBUT or not anomaly.attribut_id:
+        return rank
+    target_system = anomaly.systeme_ecart if anomaly.type_ecart == anomaly.TypeEcart.ABSENT else None
+    evidence, reasons = [], []
+    for system, value, service_ref in _attribute_source_values(anomaly):
+        if value.est_vide:
+            continue
+        reason = ''
+        incompatible = value.format_source_conforme is False
+        if incompatible:
+            reason = 'Format source non conforme'
+        if target_system:
+            target_rule = _target_validation_rule(anomaly.attribut, target_system, service_ref)
+            compatible, target_reason = _target_format_issue(value, target_rule)
+            if compatible is False:
+                incompatible = True
+                reason = f'Format potentiellement incompatible avec {target_system.code_systeme}'
+                if target_reason:
+                    reason += f' : {target_reason}'
+        if incompatible:
+            evidence.append({'systeme': system.code_systeme, 'champ': anomaly.attribut.code_attribut, 'constat': reason})
+            if reason not in reasons:
+                reasons.append(reason)
+    if not evidence:
+        return rank
+    return _create_dynamic_prediction(
+        anomaly, rank, _motif_for_attribute_format(anomaly.attribut), evidence,
+        Decimal('0.9000'), anomaly.attribut.code_attribut, ' ; '.join(reasons),
     )
 
-    # Toutes les règles métier effectivement violées sont conservées. Elles ne
-    # sont pas des alternatives entre elles : plusieurs causes peuvent expliquer
-    # simultanément le même blocage de synchronisation.
+
+def _service_constat_rule():
+    motif = Motif.objects.filter(code_motif='SERVICE_ABSENT', actif=True).first()
+    if not motif:
+        return None
+    return _generic_rule(motif, 'SERVICE', 'SERVICE_SYNC', type_control='VIDE')
+
+
+def _append_service_constat(anomaly, rank):
+    if anomaly.niveau != anomaly.Niveau.SERVICE or anomaly.type_ecart != anomaly.TypeEcart.ABSENT:
+        return rank
+    rule = _service_constat_rule()
+    if not rule:
+        return rank
+    missing_codes = [
+        detail.systeme.code_systeme
+        for detail in anomaly.details.select_related('systeme').all()
+        if not detail.objet_present
+    ]
+    if not missing_codes:
+        return rank
+    target = Systeme.objects.filter(code_systeme=missing_codes[0], actif=True).first()
+    if not target:
+        return rank
+    PredictionMotif.objects.create(
+        anomalie=anomaly,
+        source_prediction=PredictionMotif.Source.REGLE,
+        regle=rule,
+        motif=rule.motif_suggere,
+        systeme_a_corriger_predit=target,
+        rang=rank,
+        score_confiance=Decimal('1.0000'),
+        explication={
+            'diagnostic_dynamique': True,
+            'message': f'Service {anomaly.code_service} absent dans {", ".join(missing_codes)}.',
+            'systemes_a_corriger': missing_codes,
+            'role_diagnostic': 'CONSTAT_SERVICE',
+            'afficher_motif': False,
+        },
+    )
+    return rank + 1
+
+
+def _append_rule_predictions(anomaly, rank, used_motif_ids):
+    rules = RegleMetier.objects.filter(actif=True, niveau_anomalie=anomaly.niveau).select_related(
+        'motif_suggere', 'flux__systeme_source', 'flux__systeme_destination', 'attribut'
+    )
     for rule in rules:
-        if _rule_matches(rule, anomaly):
-            target_codes = _correction_system_codes(rule, anomaly)
-            predicted_system = None
-            if target_codes:
-                predicted_system = Systeme.objects.filter(code_systeme=target_codes[0]).first()
-            if predicted_system is None:
-                predicted_system = anomaly.systeme_ecart
-            PredictionMotif.objects.create(
-                anomalie=anomaly,
-                source_prediction=PredictionMotif.Source.REGLE,
-                regle=rule,
-                motif=rule.motif_suggere,
-                systeme_a_corriger_predit=predicted_system,
-                rang=rank,
-                score_confiance=rule.seuil_confiance,
-                explication={
-                    'regle': rule.code_regle,
-                    'type_controle': rule.type_controle,
-                    'attribut_analyse': rule.attribut.code_attribut if rule.attribut_id else None,
-                    'indices': _diagnostic_evidence(rule, anomaly),
-                    'systemes_a_corriger': target_codes,
-                    'role_diagnostic': 'CAUSE_ACTIVE',
-                },
-            )
-            used_motif_ids.add(rule.motif_suggere_id)
-            rank += 1
+        if not _rule_matches(rule, anomaly):
+            continue
+        target_codes = _correction_system_codes(rule, anomaly)
+        predicted_system = Systeme.objects.filter(code_systeme=target_codes[0]).first() if target_codes else anomaly.systeme_ecart
+        PredictionMotif.objects.create(
+            anomalie=anomaly,
+            source_prediction=PredictionMotif.Source.REGLE,
+            regle=rule,
+            motif=rule.motif_suggere,
+            systeme_a_corriger_predit=predicted_system,
+            rang=rank,
+            score_confiance=rule.seuil_confiance,
+            explication={
+                'regle': rule.code_regle,
+                'type_controle': rule.type_controle,
+                'attribut_analyse': rule.attribut.code_attribut if rule.attribut_id else None,
+                'indices': _diagnostic_evidence(rule, anomaly),
+                'systemes_a_corriger': target_codes,
+                'role_diagnostic': 'CAUSE_ACTIVE',
+            },
+        )
+        used_motif_ids.add(rule.motif_suggere_id)
+        rank += 1
+    return rank
 
-    # Si aucun défaut source plus précis n'explique l'écart, un service réellement
-    # présent dans les autres systèmes et absent dans un système devient lui-même
-    # une cause de synchronisation déterministe.
-    if rank == 1:
-        rank = _append_service_absence_prediction(anomaly, rank)
 
-    # L'apprentissage/ML reste un mécanisme de suggestion quand aucune règle
-    # explicite n'a identifié de cause concrète dans les données.
-    if rank == 1:
+def analyze_anomaly(anomaly):
+    PredictionMotif.objects.filter(anomalie=anomaly).delete()
+    rank, used_motif_ids = 1, set()
+    if anomaly.niveau == anomaly.Niveau.SERVICE:
+        rank = _append_service_constat(anomaly, rank)
+    elif anomaly.niveau == anomaly.Niveau.ENVOI:
+        rank = _append_all_fields_envoi_diagnostics(anomaly, rank)
+    else:
+        rank = _append_attribute_format_diagnostics(anomaly, rank)
+        rank = _append_rule_predictions(anomaly, rank, used_motif_ids)
+
+    if rank == 1 and anomaly.niveau != anomaly.Niveau.SERVICE:
         rank = _append_learned_predictions(anomaly, rank, used_motif_ids)
         rank = _append_ml_predictions(anomaly, rank)
 
@@ -388,7 +547,7 @@ def analyze_anomaly(anomaly):
                 rang=1,
                 score_confiance=Decimal('0.1000'),
                 explication={
-                    'message': 'Aucune règle ou prédiction ML suffisamment précise.',
+                    'message': 'Aucune cause suffisamment étayée. Investigation nécessaire.',
                     'systemes_a_corriger': target_codes,
                     'role_diagnostic': 'SUGGESTION',
                 },
