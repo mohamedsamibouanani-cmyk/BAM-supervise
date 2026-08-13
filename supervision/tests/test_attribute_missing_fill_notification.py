@@ -9,6 +9,7 @@ from supervision.models import (
 )
 from supervision.services.comparison import run_campaign
 from supervision.services.notifications import send_validation_email
+from supervision.services.security import encrypt_sensitive, sensitive_fingerprint
 from supervision.services.utils import stable_hash
 
 
@@ -95,6 +96,63 @@ class AttributeMissingFillNotificationTests(TestCase):
         prediction = anomaly.predictions.get()
         return anomaly, prediction
 
+    def _campaign_with_missing_phone(self):
+        key = 'PHONE'
+        raw_phone = '0612345678'
+        campaign = CampagneSupervision.objects.create(superviseur=self.user)
+        services = {}
+        for code in ('SMI', 'SICOM', 'SIBO'):
+            file_import = FichierImport.objects.create(
+                systeme=self.systems[code],
+                superviseur=self.user,
+                nom_fichier=f'{key}_{code}.xlsx',
+                chemin_stockage=f'/tmp/{key}_{code}.xlsx',
+                checksum_sha256=stable_hash(key, code),
+                statut_import='CHARGE',
+                nb_lignes_source=1,
+                nb_lignes_retenues=1,
+            )
+            CampagneImport.objects.create(
+                campagne=campaign,
+                systeme=self.systems[code],
+                fichier_import=file_import,
+            )
+            shipment = EnvoiSnapshot.objects.create(
+                fichier_import=file_import,
+                code_envoi='E-PHONE',
+                num_commande='CMD-PHONE',
+                org_commerciale='2000',
+                ligne_premiere=2,
+                empreinte_envoi=stable_hash(key, code, 'shipment'),
+            )
+            services[code] = ServiceSnapshot.objects.create(
+                envoi_snapshot=shipment,
+                code_service='30801',
+                libelle_service='Notification destinataire',
+                ligne_source=2,
+                empreinte_service=stable_hash(key, code, '30801'),
+            )
+
+        phone = AttributDefinition.objects.get(code_attribut='TELEPHONE_NOTIFICATION')
+        for code in ('SMI', 'SICOM'):
+            ValeurAttributSnapshot.objects.create(
+                service_snapshot=services[code],
+                attribut=phone,
+                valeur_brute=encrypt_sensitive(raw_phone),
+                valeur_normalisee=sensitive_fingerprint(raw_phone),
+                est_vide=False,
+                format_source_conforme=True,
+            )
+
+        run_campaign(campaign)
+        anomaly = campaign.anomalies.get(
+            niveau=Anomalie.Niveau.ATTRIBUT,
+            type_ecart=Anomalie.TypeEcart.ABSENT,
+            attribut=phone,
+            systeme_ecart=self.systems['SIBO'],
+        )
+        return anomaly, anomaly.predictions.get(), raw_phone, phone
+
     def _validate_and_send(self, anomaly, prediction, target_code):
         self.assertEqual(Notification.objects.count(), 0)
         validation = ValidationMotif.objects.create(
@@ -127,6 +185,24 @@ class AttributeMissingFillNotificationTests(TestCase):
         self.assertIn('- SICOM : 800', notification.message)
         self.assertIn('avec la valeur : 800.', notification.message)
 
+    def test_phone_value_is_decrypted_only_for_validated_email_to_missing_system(self):
+        anomaly, prediction, raw_phone, phone = self._campaign_with_missing_phone()
+        self.assertEqual(prediction.motif.code_motif, 'ATTRIBUT_NON_SYNCHRONISE')
+        self.assertEqual(prediction.systeme_a_corriger_predit, self.systems['SIBO'])
+        self.assertEqual(Notification.objects.count(), 0)
+
+        stored = list(ValeurAttributSnapshot.objects.filter(attribut=phone))
+        self.assertEqual(len(stored), 2)
+        self.assertTrue(all(value.valeur_brute.startswith('enc:v1:') for value in stored))
+        self.assertTrue(all(raw_phone not in value.valeur_brute for value in stored))
+
+        notification = self._validate_and_send(anomaly, prediction, 'SIBO')
+
+        self.assertEqual(notification.groupe.systeme, self.systems['SIBO'])
+        self.assertIn('- SMI : 0612345678', notification.message)
+        self.assertIn('- SICOM : 0612345678', notification.message)
+        self.assertIn('avec la valeur : 0612345678.', notification.message)
+
     def test_different_source_values_are_listed_without_automatic_choice(self):
         anomaly, prediction = self._campaign_with_missing_attribute(
             'DIFF', {'SMI': '800', 'SICOM': '900'}
@@ -157,4 +233,5 @@ class AttributeMissingFillNotificationTests(TestCase):
         self.assertEqual(notification.groupe.systeme, self.systems['SMI'])
         self.assertIn('Format source non conforme', notification.message)
         self.assertIn('Système source à corriger : SMI', notification.message)
+        self.assertIn('Valeur observée : 1.3,12', notification.message)
         self.assertIn('corriger le format du champ MONTANT_CRBT', notification.message)
