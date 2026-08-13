@@ -2,6 +2,10 @@
   'use strict';
 
   function initValidationPage() {
+    const form = document.getElementById('validationForm');
+    if (!form) return;
+
+    const isService = form.dataset.anomalyLevel === 'SERVICE';
     const checkboxes = Array.from(document.querySelectorAll('input[name="predictions"]'));
     const legacyPrediction = document.getElementById('id_prediction');
     const motifSelect = document.getElementById('id_motif_final');
@@ -23,9 +27,8 @@
     const submitButton = document.getElementById('submitDecision');
     const submitLabel = document.getElementById('submitDecisionLabel');
 
-    if (!adjustmentPanel || !selectionSummary || !countText || !targetsOutput || !submitButton || !submitLabel) {
-      return;
-    }
+    if (!adjustmentPanel || !submitButton || !submitLabel) return;
+    if (!isService && (!selectionSummary || !countText || !targetsOutput)) return;
 
     const metadata = {};
     document.querySelectorAll('#predictionMetadata [data-prediction-id]').forEach(function (node) {
@@ -37,6 +40,11 @@
         }).filter(Boolean)
       };
     });
+
+    function firstMetadata() {
+      const id = Object.keys(metadata)[0];
+      return id ? {id: id, item: metadata[id]} : null;
+    }
 
     function selectedDecision() {
       const checked = document.querySelector('input[name="decision"]:checked');
@@ -60,6 +68,7 @@
     }
 
     function renderTargetList(targets) {
+      if (!targetsOutput) return;
       targetsOutput.replaceChildren();
       if (!targets.length) {
         const empty = document.createElement('em');
@@ -75,7 +84,28 @@
       });
     }
 
+    function configureServiceConstat() {
+      if (!isService) return;
+      const primary = firstMetadata();
+      if (!primary) return;
+      if (legacyPrediction) legacyPrediction.value = primary.id;
+      if (motifSelect && primary.item.motifId) motifSelect.value = primary.item.motifId;
+      if (systemSelect && selectedDecision() === 'ACCEPTE' && primary.item.systemId) {
+        systemSelect.value = primary.item.systemId;
+      }
+    }
+
     function renderSelection() {
+      if (isService) {
+        configureServiceConstat();
+        submitButton.disabled = false;
+        if (footerSummary && selectedDecision() === 'ACCEPTE') {
+          const copy = footerSummary.querySelector('span');
+          if (copy) copy.textContent = 'Le constat sera enregistré et le système concerné sera notifié.';
+        }
+        return;
+      }
+
       const selected = selectedPredictions();
       const targets = selectedTargets(selected);
       const count = selected.length;
@@ -89,10 +119,7 @@
         if (motifSelect && primary.motifId) motifSelect.value = primary.motifId;
         if (systemSelect && primary.systemId) systemSelect.value = primary.systemId;
       }
-
-      if (selectedDecision() === 'ACCEPTE') {
-        submitButton.disabled = count === 0;
-      }
+      if (selectedDecision() === 'ACCEPTE') submitButton.disabled = count === 0;
 
       if (footerSummary && selectedDecision() === 'ACCEPTE') {
         const copy = footerSummary.querySelector('span');
@@ -105,9 +132,8 @@
     }
 
     function setCauseSelection(enabled) {
-      checkboxes.forEach(function (input) {
-        input.disabled = !enabled;
-      });
+      if (isService) return;
+      checkboxes.forEach(function (input) { input.disabled = !enabled; });
       if (selectAllButton) selectAllButton.disabled = !enabled;
       if (clearButton) clearButton.disabled = !enabled;
       if (causesPanel) causesPanel.classList.toggle('is-inactive', !enabled);
@@ -121,24 +147,36 @@
 
       setCauseSelection(isAccept);
       adjustmentPanel.hidden = isAccept;
-      if (motifField) motifField.hidden = !isModify;
-      if (newReason) newReason.hidden = !isModify;
+      if (motifField) motifField.hidden = isService || !isModify;
+      if (newReason) newReason.hidden = isService || !isModify;
 
       if (isAccept) {
-        if (decisionHelp) decisionHelp.textContent = 'Confirmez simplement les causes cochées.';
-        submitLabel.textContent = 'Valider et notifier';
+        if (decisionHelp) {
+          decisionHelp.textContent = isService
+            ? 'Confirmez le système où le service est absent.'
+            : 'Confirmez simplement les causes cochées.';
+        }
+        submitLabel.textContent = isService ? 'Confirmer et notifier' : 'Valider et notifier';
       } else if (isModify) {
-        if (decisionHelp) decisionHelp.textContent = 'Le diagnostic proposé sera remplacé par votre choix.';
-        if (adjustmentTitle) adjustmentTitle.textContent = 'Ajuster le diagnostic';
-        if (adjustmentHint) adjustmentHint.textContent = 'Choisissez le système responsable et la cause retenue.';
+        if (decisionHelp) {
+          decisionHelp.textContent = isService
+            ? 'Choisissez le système réellement concerné par la désynchronisation.'
+            : 'Le diagnostic proposé sera remplacé par votre choix.';
+        }
+        if (adjustmentTitle) adjustmentTitle.textContent = isService ? 'Ajuster le système concerné' : 'Ajuster le diagnostic';
+        if (adjustmentHint) adjustmentHint.textContent = isService
+          ? 'Aucun motif métier n’est demandé à ce niveau.'
+          : 'Choisissez le système responsable et la cause retenue.';
         submitLabel.textContent = 'Enregistrer et notifier';
         submitButton.disabled = false;
         if (footerSummary) {
           const copy = footerSummary.querySelector('span');
-          if (copy) copy.textContent = 'Le diagnostic ajusté sera enregistré avant notification.';
+          if (copy) copy.textContent = isService
+            ? 'Le constat sera enregistré avec le système choisi.'
+            : 'Le diagnostic ajusté sera enregistré avant notification.';
         }
       } else if (isUnknown) {
-        if (decisionHelp) decisionHelp.textContent = 'La cause doit encore être clarifiée.';
+        if (decisionHelp) decisionHelp.textContent = 'Le système concerné doit approfondir l’analyse.';
         if (adjustmentTitle) adjustmentTitle.textContent = 'Poursuivre l’investigation';
         if (adjustmentHint) adjustmentHint.textContent = 'Choisissez le système qui doit approfondir l’analyse.';
         submitLabel.textContent = 'Envoyer pour investigation';
@@ -152,12 +190,8 @@
       renderSelection();
     }
 
-    checkboxes.forEach(function (input) {
-      input.addEventListener('change', renderSelection);
-    });
-    decisionInputs.forEach(function (input) {
-      input.addEventListener('change', renderDecision);
-    });
+    checkboxes.forEach(function (input) { input.addEventListener('change', renderSelection); });
+    decisionInputs.forEach(function (input) { input.addEventListener('change', renderDecision); });
     if (selectAllButton) {
       selectAllButton.addEventListener('click', function () {
         checkboxes.forEach(function (input) { input.checked = true; });
