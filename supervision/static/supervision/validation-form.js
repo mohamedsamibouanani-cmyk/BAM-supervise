@@ -6,6 +6,7 @@
     if (!form) return;
 
     const isService = form.dataset.anomalyLevel === 'SERVICE';
+    const isAttribute = form.dataset.anomalyLevel === 'ATTRIBUT';
     const checkboxes = Array.from(document.querySelectorAll('input[name="predictions"]'));
     const legacyPrediction = document.getElementById('id_prediction');
     const motifSelect = document.getElementById('id_motif_final');
@@ -44,6 +45,14 @@
     function firstMetadata() {
       const id = Object.keys(metadata)[0];
       return id ? {id: id, item: metadata[id]} : null;
+    }
+
+    function isFlexibleAttributeDifference() {
+      if (!isAttribute) return false;
+      const primary = firstMetadata();
+      return Boolean(
+        primary && !primary.item.systemId && primary.item.targets.length === 0
+      );
     }
 
     function selectedDecision() {
@@ -144,11 +153,12 @@
       const isAccept = decision === 'ACCEPTE';
       const isModify = decision === 'MODIFIE';
       const isUnknown = decision === 'INCONNU';
+      const flexibleDifference = isFlexibleAttributeDifference();
 
-      setCauseSelection(isAccept);
+      setCauseSelection(isAccept && !flexibleDifference);
       adjustmentPanel.hidden = isAccept;
-      if (motifField) motifField.hidden = isService || !isModify;
-      if (newReason) newReason.hidden = isService || !isModify;
+      if (motifField) motifField.hidden = isService || flexibleDifference || !isModify;
+      if (newReason) newReason.hidden = isService || flexibleDifference || !isModify;
 
       if (isAccept) {
         if (decisionHelp) {
@@ -158,22 +168,31 @@
         }
         submitLabel.textContent = isService ? 'Confirmer et notifier' : 'Valider et notifier';
       } else if (isModify) {
-        if (decisionHelp) {
-          decisionHelp.textContent = isService
-            ? 'Choisissez le système réellement concerné par la désynchronisation.'
-            : 'Le diagnostic proposé sera remplacé par votre choix.';
+        if (flexibleDifference) {
+          if (decisionHelp) decisionHelp.textContent = 'Les valeurs sont différentes. Choisissez explicitement le système à corriger.';
+          if (adjustmentTitle) adjustmentTitle.textContent = 'Choisir le système à corriger';
+          if (adjustmentHint) adjustmentHint.textContent = 'La règle de détermination de la valeur de référence n’est pas encore définie. BAM Supervise ne choisit donc aucun système automatiquement.';
+          submitLabel.textContent = 'Valider le système et notifier';
+        } else {
+          if (decisionHelp) {
+            decisionHelp.textContent = isService
+              ? 'Choisissez le système réellement concerné par la désynchronisation.'
+              : 'Le diagnostic proposé sera remplacé par votre choix.';
+          }
+          if (adjustmentTitle) adjustmentTitle.textContent = isService ? 'Ajuster le système concerné' : 'Ajuster le diagnostic';
+          if (adjustmentHint) adjustmentHint.textContent = isService
+            ? 'Aucun motif métier n’est demandé à ce niveau.'
+            : 'Choisissez le système responsable et la cause retenue.';
+          submitLabel.textContent = 'Enregistrer et notifier';
         }
-        if (adjustmentTitle) adjustmentTitle.textContent = isService ? 'Ajuster le système concerné' : 'Ajuster le diagnostic';
-        if (adjustmentHint) adjustmentHint.textContent = isService
-          ? 'Aucun motif métier n’est demandé à ce niveau.'
-          : 'Choisissez le système responsable et la cause retenue.';
-        submitLabel.textContent = 'Enregistrer et notifier';
         submitButton.disabled = false;
         if (footerSummary) {
           const copy = footerSummary.querySelector('span');
-          if (copy) copy.textContent = isService
-            ? 'Le constat sera enregistré avec le système choisi.'
-            : 'Le diagnostic ajusté sera enregistré avant notification.';
+          if (copy) copy.textContent = flexibleDifference
+            ? 'Le système choisi par le superviseur sera notifié avec toutes les valeurs observées.'
+            : (isService
+              ? 'Le constat sera enregistré avec le système choisi.'
+              : 'Le diagnostic ajusté sera enregistré avant notification.');
         }
       } else if (isUnknown) {
         if (decisionHelp) decisionHelp.textContent = 'Le système concerné doit approfondir l’analyse.';
