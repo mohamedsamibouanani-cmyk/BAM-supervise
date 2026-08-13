@@ -38,20 +38,12 @@
   <div class="anomaly-workspace anomaly-workspace-compact">
     <div class="anomaly-main-column">
       <section class="anomaly-card">
-        <div class="anomaly-card-head compact-card-head">
-          <div><h2>État de synchronisation</h2></div>
-        </div>
+        <div class="anomaly-card-head compact-card-head"><div><h2>État de synchronisation</h2></div></div>
         <div class="anomaly-card-body compact-card-body">
           {% if anomaly.details.all %}
           <div class="table-responsive">
             <table class="system-state-table compact-state-table">
-              <thead>
-                <tr>
-                  <th>Système</th>
-                  <th>État</th>
-                  {% if anomaly.type_ecart == 'DIFFERENT' %}<th>Valeur</th>{% endif %}
-                </tr>
-              </thead>
+              <thead><tr><th>Système</th><th>État</th>{% if anomaly.type_ecart == 'DIFFERENT' %}<th>Valeur</th>{% endif %}</tr></thead>
               <tbody>
                 {% for d in anomaly.details.all %}
                 <tr>
@@ -66,74 +58,69 @@
                       <span class="system-state-result is-gap"><i class="bi bi-x-circle-fill"></i> Absent</span>
                     {% endif %}
                   </td>
-                  {% if anomaly.type_ecart == 'DIFFERENT' %}
-                    <td class="system-state-note"><strong>{{ d.valeur_brute|default:'—' }}</strong></td>
-                  {% endif %}
+                  {% if anomaly.type_ecart == 'DIFFERENT' %}<td class="system-state-note"><strong>{{ d.valeur_brute|default:'—' }}</strong></td>{% endif %}
                 </tr>
                 {% endfor %}
               </tbody>
             </table>
           </div>
-          {% else %}
-            <div class="anomaly-empty compact-empty"><strong>Aucune donnée de comparaison disponible.</strong></div>
-          {% endif %}
+          {% else %}<div class="anomaly-empty compact-empty"><strong>Aucune donnée de comparaison disponible.</strong></div>{% endif %}
         </div>
       </section>
 
       <section class="anomaly-card">
         <div class="anomaly-card-head compact-card-head">
-          <div><h2>Causes détectées</h2></div>
-          {% if anomaly.predictions.count %}<span class="decision-count">{{ anomaly.predictions.count }}</span>{% endif %}
+          <div><h2>{% if anomaly.niveau == 'SERVICE' %}Désynchronisation détectée{% else %}Causes détectées{% endif %}</h2></div>
+          {% if anomaly.niveau != 'SERVICE' and anomaly.predictions.count %}<span class="decision-count">{{ anomaly.predictions.count }}</span>{% endif %}
         </div>
         <div class="anomaly-card-body compact-card-body">
-          <div class="cause-list compact-cause-list">
-            {% for p in anomaly.predictions.all %}
+          {% if anomaly.niveau == 'SERVICE' %}
+            <div class="cause-list compact-cause-list">
               <article class="cause-row compact-cause-row">
                 <div class="cause-copy">
                   <div class="cause-topline compact-cause-topline">
-                    <strong>{{ p.motif.libelle }}</strong>
+                    <strong>Service {{ anomaly.code_service }} non synchronisé</strong>
                   </div>
-                </div>
-                <div class="cause-side compact-cause-side">
-                  <span class="cause-score">{% widthratio p.score_confiance 1 100 %}%</span>
+                  {% if anomaly.systeme_ecart %}<small>Absent dans {{ anomaly.systeme_ecart.code_systeme }}</small>{% endif %}
                 </div>
               </article>
-            {% empty %}
-              <div class="anomaly-empty compact-empty"><strong>Cause non identifiée.</strong></div>
-            {% endfor %}
-          </div>
+            </div>
+          {% else %}
+            <div class="cause-list compact-cause-list">
+              {% for p in anomaly.predictions.all %}
+                <article class="cause-row compact-cause-row">
+                  <div class="cause-copy"><div class="cause-topline compact-cause-topline"><strong>{{ p.motif.libelle }}</strong></div></div>
+                  <div class="cause-side compact-cause-side"><span class="cause-score">{% widthratio p.score_confiance 1 100 %}%</span></div>
+                </article>
+              {% empty %}<div class="anomaly-empty compact-empty"><strong>Cause non identifiée.</strong></div>{% endfor %}
+            </div>
+          {% endif %}
         </div>
       </section>
     </div>
 
     <aside class="anomaly-side-column">
       <section class="anomaly-card decision-card compact-decision-card">
-        <div class="anomaly-card-head compact-card-head">
-          <div><h2>Décision</h2></div>
-        </div>
+        <div class="anomaly-card-head compact-card-head"><div><h2>Décision</h2></div></div>
         <div class="decision-focus compact-decision-focus">
           {% if final_validations %}
-            <span class="decision-focus-label">Causes validées</span>
+            <span class="decision-focus-label">{% if anomaly.niveau == 'SERVICE' %}Constat validé{% else %}Causes validées{% endif %}</span>
             <div class="decision-corrections compact-validations">
               {% for validation in final_validations %}
                 <div class="decision-correction compact-validation-row">
-                  <strong>{{ validation.motif_final.libelle }}</strong>
+                  <strong>{% if anomaly.niveau == 'SERVICE' %}Service {{ anomaly.code_service }} non synchronisé{% else %}{{ validation.motif_final.libelle }}{% endif %}</strong>
                   <div class="decision-correction-meta">
                     {% if validation.decision == 'ACCEPTE' and validation.prediction_retenue.explication.systemes_a_corriger %}
                       {% for code in validation.prediction_retenue.explication.systemes_a_corriger %}<span class="system-badge">{{ code }}</span>{% endfor %}
-                    {% elif validation.systeme_a_corriger_final %}
-                      <span class="system-badge">{{ validation.systeme_a_corriger_final.code_systeme }}</span>
-                    {% endif %}
+                    {% elif validation.systeme_a_corriger_final %}<span class="system-badge">{{ validation.systeme_a_corriger_final.code_systeme }}</span>{% endif %}
                   </div>
                 </div>
               {% endfor %}
             </div>
-            {% if anomaly.statut != 'RESOLUE' %}
-              <a class="btn btn-primary decision-primary-action" href="{% url 'anomaly_validate' anomaly.pk %}"><i class="bi bi-pencil-square"></i> Réviser</a>
-            {% endif %}
+            {% if anomaly.statut != 'RESOLUE' %}<a class="btn btn-primary decision-primary-action" href="{% url 'anomaly_validate' anomaly.pk %}"><i class="bi bi-pencil-square"></i> Réviser</a>{% endif %}
           {% else %}
             <span class="decision-focus-label">Action requise</span>
-            <h3>Examiner les causes</h3>
+            <h3>{% if anomaly.niveau == 'SERVICE' %}Confirmer le constat{% else %}Examiner les causes{% endif %}</h3>
             <a class="btn btn-primary decision-primary-action" href="{% url 'anomaly_validate' anomaly.pk %}"><i class="bi bi-check2-square"></i> Examiner</a>
           {% endif %}
         </div>
@@ -142,34 +129,20 @@
   </div>
 
   <details class="anomaly-card compact-history">
-    <summary class="compact-history-summary">
-      <span><i class="bi bi-clock-history"></i> Historique du dossier</span>
-      <span class="compact-history-action">Afficher</span>
-    </summary>
+    <summary class="compact-history-summary"><span><i class="bi bi-clock-history"></i> Historique du dossier</span><span class="compact-history-action">Afficher</span></summary>
     <div class="anomaly-card-body compact-history-body">
       <div class="compact-timeline">
         {% for h in anomaly.historique.all %}
           <div class="compact-timeline-item">
             <span class="compact-timeline-dot"></span>
-            <div class="compact-timeline-copy">
-              <strong>{{ h.nouveau_statut }} · {{ h.source_evenement }}</strong>
-              {% if h.commentaire %}<small>{{ h.commentaire }}</small>{% endif %}
-            </div>
+            <div class="compact-timeline-copy"><strong>{{ h.nouveau_statut }} · {{ h.source_evenement }}</strong>{% if h.commentaire %}<small>{{ h.commentaire }}</small>{% endif %}</div>
             <time class="compact-timeline-time">{{ h.change_le|date:'d/m/Y H:i' }}</time>
           </div>
         {% empty %}
-          <div class="compact-timeline-item">
-            <span class="compact-timeline-dot"></span>
-            <div class="compact-timeline-copy"><strong>Anomalie créée</strong></div>
-            <time class="compact-timeline-time">{{ anomaly.detectee_le|date:'d/m/Y H:i' }}</time>
-          </div>
+          <div class="compact-timeline-item"><span class="compact-timeline-dot"></span><div class="compact-timeline-copy"><strong>Anomalie créée</strong></div><time class="compact-timeline-time">{{ anomaly.detectee_le|date:'d/m/Y H:i' }}</time></div>
         {% endfor %}
         {% for v in anomaly.verifications.all %}
-          <div class="compact-timeline-item">
-            <span class="compact-timeline-dot"></span>
-            <div class="compact-timeline-copy"><strong>Recontrôle · {{ v.get_resultat_display }}</strong></div>
-            <time class="compact-timeline-time">{{ v.verifiee_le|date:'d/m/Y H:i' }}</time>
-          </div>
+          <div class="compact-timeline-item"><span class="compact-timeline-dot"></span><div class="compact-timeline-copy"><strong>Recontrôle · {{ v.get_resultat_display }}</strong></div><time class="compact-timeline-time">{{ v.verifiee_le|date:'d/m/Y H:i' }}</time></div>
         {% endfor %}
       </div>
     </div>
