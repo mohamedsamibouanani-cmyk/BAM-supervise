@@ -1,21 +1,26 @@
-from supervision.models import Anomalie, HistoriqueAnomalie, Notification
+from supervision.models import (
+    Anomalie, HistoriqueAnomalie, Notification, NotificationDestinataire,
+)
 
 from .notifications import RoutingError, _send_one, _target_systems
 
 
 def retry_failed_notification(notification):
-    """Retry only the system attached to one failed notification.
+    """Retry only the failed recipients of the current responsible system.
 
-    The failed record remains immutable for audit purposes. Before retrying, the
-    current routing is recomputed. If the old notification points to a system that
-    is no longer responsible for the dossier, the retry is refused instead of
-    sending a stale or duplicate message.
+    The failed notification remains immutable for audit purposes. Current routing
+    is recomputed first. For notifications created with per-recipient delivery,
+    only recipient rows marked ECHEC are retried; collaborators who already
+    received the message are never contacted again by this retry.
     """
     if notification.statut != Notification.Statut.ECHEC:
         raise RoutingError('Seules les notifications en échec peuvent être relancées.')
 
     system = notification.groupe.systeme
-    current_targets = {item.code_systeme: item for item in _target_systems(notification.validation)}
+    current_targets = {
+        item.code_systeme: item
+        for item in _target_systems(notification.validation)
+    }
     if system.code_systeme not in current_targets:
         raise RoutingError(
             f'La tentative {system.code_systeme} est obsolète : ce système n’est plus '
@@ -23,7 +28,20 @@ def retry_failed_notification(notification):
             'avant toute nouvelle notification.'
         )
 
-    retried = _send_one(notification.validation, current_targets[system.code_systeme])
+    failed_emails = list(
+        notification.destinataires.filter(
+            statut_livraison=NotificationDestinataire.Statut.ECHEC
+        ).values_list('email_snapshot', flat=True)
+    )
+    # Compatibility with historical failed notifications that predate recipient
+    # delivery statuses: if no failed row exists, recompute the whole current group.
+    only_emails = failed_emails or None
+
+    retried = _send_one(
+        notification.validation,
+        current_targets[system.code_systeme],
+        only_emails=only_emails,
+    )
 
     anomaly = notification.validation.anomalie
     if anomaly.statut != Anomalie.Statut.NOTIFIEE:
@@ -36,7 +54,10 @@ def retry_failed_notification(notification):
             nouveau_statut=Anomalie.Statut.NOTIFIEE,
             source_evenement='MAIL',
             superviseur=notification.validation.superviseur,
-            commentaire=f'Notification relancée avec succès vers {system.code_systeme}.',
+            commentaire=(
+                f'Notification relancée avec succès vers {system.code_systeme} '
+                f'pour {len(retried.destinataires.all())} destinataire(s) en échec.'
+            ),
         )
 
     return retried
