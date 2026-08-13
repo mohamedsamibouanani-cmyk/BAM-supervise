@@ -23,18 +23,26 @@ class Command(BaseCommand):
                 defaults={'description': f'Collaborateurs responsables du système {code}.'},
             )
 
+        # N3 porte métier uniquement sur trois attributs : CRBT, téléphone de
+        # notification et valeur déclarée. Les autres champs restent disponibles
+        # pour le diagnostic complet du niveau ENVOI (N1).
         attrs = {
+            'MONTANT_CRBT': ('Montant CRBT', 'SERVICE', 'NOMBRE', False),
+            'TELEPHONE_NOTIFICATION': ('Téléphone de notification', 'SERVICE', 'TEXTE', True),
+            'MONTANT_VALEUR_DECLAREE': ('Montant valeur déclarée', 'SERVICE', 'NOMBRE', False),
+            # Alias historiques conservés pour les anciens imports/référentiels.
+            'CRBT': ('Montant CRBT', 'SERVICE', 'NOMBRE', False),
+            'TELEPHONE': ('Téléphone destinataire', 'ENVOI', 'TEXTE', True),
+            'VALEUR_DECLAREE': ('Valeur déclarée', 'SERVICE', 'NOMBRE', False),
+            # Champs utiles au diagnostic N1, mais non comparés comme attributs N3.
             'VILLE': ('Ville de destination', 'ENVOI', 'TEXTE', False),
             'VILLE_DESTINATION': ('Ville de destination', 'ENVOI', 'TEXTE', False),
             'PAYS': ('Pays de destination', 'ENVOI', 'TEXTE', False),
             'PAYS_DESTINATION': ('Pays de destination', 'ENVOI', 'TEXTE', False),
-            'TELEPHONE': ('Téléphone destinataire', 'ENVOI', 'TEXTE', True),
             'CODE_DIVISION': ('Code division', 'ENVOI', 'TEXTE', False),
             'MNT_HT': ('Montant HT', 'SERVICE', 'NOMBRE', False),
             'MNT_TVA': ('Montant TVA', 'SERVICE', 'NOMBRE', False),
             'MNT_TTC': ('Montant TTC', 'SERVICE', 'NOMBRE', False),
-            'CRBT': ('Montant CRBT', 'SERVICE', 'NOMBRE', False),
-            'VALEUR_DECLAREE': ('Valeur déclarée', 'SERVICE', 'NOMBRE', False),
         }
         attr_objs = {}
         for code, (label, scope, typ, sensitive) in attrs.items():
