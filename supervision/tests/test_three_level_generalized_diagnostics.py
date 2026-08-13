@@ -68,12 +68,21 @@ class ThreeLevelGeneralizedDiagnosisTests(TestCase):
 
         custom_attributes = []
         for index in range(1, 5):
-            custom_attributes.append(AttributDefinition.objects.create(
+            attribute = AttributDefinition.objects.create(
                 code_attribut=f'CHAMP_PERSONNALISE_{index}',
                 libelle=f'Champ personnalisé {index}',
                 portee=AttributDefinition.Portee.ENVOI,
                 type_valeur=AttributDefinition.TypeValeur.TEXTE,
-            ))
+            )
+            custom_attributes.append(attribute)
+            ServiceAttributRegle.objects.create(
+                service_ref=None,
+                attribut=attribute,
+                systeme=self.systems['SIBO'],
+                obligatoire=True,
+                regle_validation={},
+                message_erreur=f'{attribute.code_attribut} obligatoire dans SIBO.',
+            )
 
         for attribute in custom_attributes:
             ValeurAttributSnapshot.objects.create(
@@ -104,11 +113,14 @@ class ThreeLevelGeneralizedDiagnosisTests(TestCase):
         }
         for attribute in custom_attributes:
             self.assertIn(attribute.code_attribut, fields)
-        self.assertGreaterEqual(anomaly.predictions.count(), 4)
-        for prediction in anomaly.predictions.filter(
-            explication__attribut_analyse__startswith='CHAMP_PERSONNALISE_'
-        ):
+        self.assertEqual(anomaly.predictions.count(), 4)
+        for prediction in anomaly.predictions.all():
+            self.assertEqual(
+                prediction.motif.code_motif,
+                'CHAMP_OBLIGATOIRE_ENVOI_ABSENT',
+            )
             self.assertEqual(prediction.explication['systemes_a_corriger'], ['SMI'])
+            self.assertIn('est obligatoire et absent', prediction.explication['message'])
 
     def test_level_3_missing_amount_can_be_explained_by_target_decimal_format(self):
         campaign, files = self._campaign('N3-DECIMAL')
