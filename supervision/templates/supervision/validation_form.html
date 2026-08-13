@@ -37,7 +37,7 @@
               {% elif anomaly.niveau == 'ATTRIBUT' %}
                 <p>Confirmez le constat de synchronisation ou une cause réellement démontrée.</p>
               {% else %}
-                <p>Gardez uniquement les causes que vous confirmez.</p>
+                <p>Gardez uniquement les causes que vous confirmez. Aucun mail n’est envoyé avant votre validation.</p>
               {% endif %}
             </div>
             {% if anomaly.niveau != 'SERVICE' %}
@@ -85,7 +85,7 @@
           </fieldset>
           {% if form.decision.errors %}<div class="text-danger small mt-2" role="alert">{{ form.decision.errors }}</div>{% endif %}
           <p class="validation-decision-help" id="decisionHelp">
-            {% if anomaly.niveau == 'SERVICE' %}Le constat sera validé sans motif métier.{% elif anomaly.niveau == 'ATTRIBUT' %}Le diagnostic de synchronisation sélectionné sera validé.{% else %}Les causes sélectionnées seront validées ensemble.{% endif %}
+            {% if anomaly.niveau == 'SERVICE' %}Le constat sera validé sans motif métier.{% elif anomaly.niveau == 'ATTRIBUT' %}Le diagnostic de synchronisation sélectionné sera validé.{% else %}Les causes sélectionnées seront validées ensemble ; la notification part seulement après validation.{% endif %}
           </p>
         </section>
       </div>
@@ -101,7 +101,7 @@
 
         <div class="validation-adjust-grid">
           <div class="validation-system-field">
-            <label class="form-label" for="{{ form.systeme_a_corriger_final.id_for_label }}">Système responsable</label>
+            <label class="form-label" for="{{ form.systeme_a_corriger_final.id_for_label }}">{{ form.systeme_a_corriger_final.label }}</label>
             {{ form.systeme_a_corriger_final }}
             {% if form.systeme_a_corriger_final.errors %}<div class="text-danger small mt-1" role="alert">{{ form.systeme_a_corriger_final.errors }}</div>{% endif %}
           </div>
@@ -134,7 +134,7 @@
       </details>
 
       <footer class="validation-actions">
-        <p id="footerSummary" aria-live="polite"><i class="bi bi-envelope-check" aria-hidden="true"></i><span>{% if anomaly.niveau == 'SERVICE' %}Le système concerné sera notifié après confirmation.{% else %}La validation notifiera les systèmes concernés.{% endif %}</span></p>
+        <p id="footerSummary" aria-live="polite"><i class="bi bi-envelope-check" aria-hidden="true"></i><span>{% if anomaly.niveau == 'SERVICE' %}Le système concerné sera notifié après confirmation.{% else %}La notification sera envoyée uniquement après cette validation du superviseur.{% endif %}</span></p>
         <div>
           <a class="btn btn-light" href="{% url 'anomaly_detail' anomaly.pk %}">Annuler</a>
           <button class="btn btn-primary" type="submit" id="submitDecision"><i class="bi bi-check2-square me-1" aria-hidden="true"></i><span id="submitDecisionLabel">{% if anomaly.niveau == 'SERVICE' %}Confirmer et notifier{% else %}Valider et notifier{% endif %}</span></button>
@@ -146,7 +146,7 @@
 
 <div id="predictionMetadata" hidden>
   {% for prediction in anomaly.predictions.all %}
-    <span data-prediction-id="{{ prediction.pk }}" data-motif-id="{{ prediction.motif_id }}" data-motif="{{ prediction.motif.libelle }}" data-score="{% widthratio prediction.score_confiance 1 100 %}" data-system-id="{{ prediction.systeme_a_corriger_predit_id|default:'' }}" data-targets="{% if prediction.explication.systemes_a_corriger %}{{ prediction.explication.systemes_a_corriger|join:',' }}{% elif prediction.systeme_a_corriger_predit %}{{ prediction.systeme_a_corriger_predit.code_systeme }}{% endif %}"></span>
+    <span data-prediction-id="{{ prediction.pk }}" data-motif-id="{{ prediction.motif_id }}" data-motif="{% if anomaly.niveau == 'ENVOI' and prediction.explication.message %}{{ prediction.explication.message }}{% else %}{{ prediction.motif.libelle }}{% endif %}" data-score="{% widthratio prediction.score_confiance 1 100 %}" data-system-id="{{ prediction.systeme_a_corriger_predit_id|default:'' }}" data-targets="{% if prediction.explication.systemes_a_corriger %}{{ prediction.explication.systemes_a_corriger|join:',' }}{% elif prediction.systeme_a_corriger_predit %}{{ prediction.systeme_a_corriger_predit.code_systeme }}{% endif %}"></span>
   {% endfor %}
 </div>
 {% endblock %}
