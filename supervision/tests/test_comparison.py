@@ -38,7 +38,7 @@ class ComparisonTests(TestCase):
         self.assertEqual(anomaly.systeme_ecart.code_systeme, 'SICOM')
         self.assertEqual(anomaly.type_ecart, 'ABSENT')
 
-    def test_different_attribute_values_create_synchronization_anomaly(self):
+    def test_different_attribute_values_create_neutral_synchronization_anomaly(self):
         Motif.objects.create(
             code_motif='ATTRIBUT_DIFFERENT',
             libelle='Valeur d’attribut non synchronisée',
@@ -75,12 +75,14 @@ class ComparisonTests(TestCase):
 
         anomaly = campaign.anomalies.get(niveau='ATTRIBUT', type_ecart='DIFFERENT')
         self.assertEqual(anomaly.attribut, crbt)
-        self.assertEqual(anomaly.systeme_ecart.code_systeme, 'SIBO')
+        self.assertIsNone(anomaly.systeme_ecart)
         prediction = anomaly.predictions.get()
         self.assertIsNone(prediction.systeme_a_corriger_predit)
         self.assertEqual(prediction.explication['role_diagnostic'], 'CONSTAT_ATTRIBUT_DIFFERENT')
+        self.assertEqual(prediction.explication['systemes_a_corriger'], [])
         values = {detail.systeme.code_systeme: detail.valeur_brute for detail in anomaly.details.all()}
         self.assertEqual(values, {'SMI': '800', 'SICOM': '800', 'SIBO': '900'})
+        self.assertTrue(all(detail.est_ecart for detail in anomaly.details.all()))
 
     def test_equivalent_normalized_non_n3_values_do_not_create_anomaly(self):
         campaign = CampagneSupervision.objects.create(superviseur=self.user)
