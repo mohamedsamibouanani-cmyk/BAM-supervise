@@ -1,8 +1,312 @@
+from collections import defaultdict
 from decimal import Decimal
 
-from supervision.models import Anomalie, Motif, PredictionMotif, RegleMetier, Systeme
+from supervision.models import (
+    Anomalie, AttributDefinition, FluxSynchronisation, Motif, PredictionMotif,
+    RegleMetier, ServiceAttributRegle, Systeme,
+)
 
-from .analysis import analyze_anomaly as _base_analyze_anomaly
+from .analysis import (
+    _candidate_source_envois,
+    _generic_rule,
+    _target_format_issue,
+    _target_validation_rule,
+    analyze_anomaly as _base_analyze_anomaly,
+)
+
+
+def _unique_codes(items):
+    result = []
+    for item in items:
+        code = str(item or '').strip().upper()
+        if code and code not in result:
+            result.append(code)
+    return result
+
+
+def _create_envoi_prediction(
+    anomaly,
+    rank,
+    motif,
+    field,
+    message,
+    evidence,
+    score,
+    role,
+    source_codes=None,
+):
+    if motif is None:
+        return rank
+    source_codes = _unique_codes(
+        source_codes if source_codes is not None
+        else [item.get('systeme') for item in evidence]
+    )
+    target = Systeme.objects.filter(
+        code_systeme=source_codes[0], actif=True
+    ).first() if source_codes else None
+    rule = _generic_rule(motif, Anomalie.Niveau.ENVOI, motif.code_motif)
+    PredictionMotif.objects.create(
+        anomalie=anomaly,
+        source_prediction=PredictionMotif.Source.REGLE,
+        regle=rule,
+        motif=motif,
+        systeme_a_corriger_predit=target,
+        rang=rank,
+        score_confiance=score,
+        explication={
+            'diagnostic_dynamique': True,
+            'attribut_analyse': field,
+            'indices': evidence,
+            'message': message,
+            'systemes_a_corriger': source_codes,
+            'role_diagnostic': role,
+        },
+    )
+    return rank + 1
+
+
+def _source_shipments(anomaly):
+    return _candidate_source_envois(None, anomaly)
+
+
+def _required_target_rules(anomaly):
+    if not anomaly.systeme_ecart_id:
+        return ServiceAttributRegle.objects.none()
+    return ServiceAttributRegle.objects.filter(
+        systeme=anomaly.systeme_ecart,
+        obligatoire=True,
+        actif=True,
+        attribut__actif=True,
+    ).select_related('attribut', 'service_ref', 'systeme')
+
+
+def _append_issue(bucket, field, system_code, constat, service_code=''):
+    key = (str(system_code).upper(), str(field).upper(), str(service_code or ''))
+    if key in bucket[field]:
+        return
+    bucket[field][key] = {
+        'systeme': str(system_code).upper(),
+        'champ': field,
+        'service': service_code or '',
+        'constat': constat,
+    }
+
+
+def _mandatory_missing_issues(anomaly):
+    """Phase 1: inspect every configured mandatory field before any format check."""
+    issues = defaultdict(dict)
+    rules = list(_required_target_rules(anomaly))
+
+    for system, shipment in _source_shipments(anomaly):
+        # ARTICLE is structurally required by the import contract. If no service is
+        # attached to the shipment, the source cannot describe a complete parcel.
+        services_all = list(shipment.services.select_related('service_ref').all())
+        if not services_all:
+            _append_issue(
+                issues,
+                'ARTICLE',
+                system.code_systeme,
+                'Le champ ARTICLE est obligatoire et absent',
+            )
+
+        for rule in rules:
+            attribute = rule.attribut
+            field = attribute.code_attribut
+            if attribute.portee == AttributDefinition.Portee.ENVOI:
+                value = shipment.valeurs_attribut.filter(attribut=attribute).first()
+                if value is None or value.est_vide:
+                    _append_issue(
+                        issues,
+                        field,
+                        system.code_systeme,
+                        f'Le champ {field} est obligatoire et absent',
+                    )
+                continue
+
+            services = services_all
+            if rule.service_ref_id:
+                services = [
+                    service for service in services_all
+                    if service.service_ref_id == rule.service_ref_id
+                    or service.code_service == rule.service_ref.code_service
+                ]
+            # If the required service itself is not present in the source, that is
+            # a SERVICE-level question, not a fabricated ENVOI cause.
+            for service in services:
+                value = service.valeurs_attribut.filter(attribut=attribute).first()
+                if value is None or value.est_vide:
+                    _append_issue(
+                        issues,
+                        field,
+                        system.code_systeme,
+                        f'Le champ {field} est obligatoire et absent',
+                        service.code_service,
+                    )
+
+    return {
+        field: list(entries.values())
+        for field, entries in issues.items()
+        if entries
+    }
+
+
+def _format_issues(anomaly):
+    """Phase 2: only reached when no mandatory field is missing."""
+    issues = defaultdict(dict)
+    target_system = anomaly.systeme_ecart
+
+    def inspect_value(system, value, service_ref=None, service_code=''):
+        if value is None or value.est_vide:
+            return
+        field = value.attribut.code_attribut
+        reasons = []
+
+        if value.format_source_conforme is False:
+            reasons.append('Format source non conforme')
+
+        target_rule = _target_validation_rule(
+            value.attribut, target_system, service_ref
+        ) if target_system else None
+        compatible, reason = _target_format_issue(value, target_rule)
+        if compatible is False:
+            target_code = target_system.code_systeme if target_system else 'le système cible'
+            detail = f'Format incompatible avec {target_code}'
+            if reason:
+                detail += f' : {reason}'
+            reasons.append(detail)
+
+        if reasons:
+            _append_issue(
+                issues,
+                field,
+                system.code_systeme,
+                ' ; '.join(dict.fromkeys(reasons)),
+                service_code,
+            )
+
+    for system, shipment in _source_shipments(anomaly):
+        for value in shipment.valeurs_attribut.select_related('attribut').all():
+            inspect_value(system, value)
+        for service in shipment.services.select_related('service_ref').all():
+            for value in service.valeurs_attribut.select_related('attribut').all():
+                inspect_value(
+                    system,
+                    value,
+                    service.service_ref,
+                    service.code_service,
+                )
+
+    return {
+        field: list(entries.values())
+        for field, entries in issues.items()
+        if entries
+    }
+
+
+def _resolve_source_system(anomaly):
+    """Resolve a unique source without guessing; otherwise require supervisor input."""
+    present = [
+        detail.systeme
+        for detail in anomaly.details.select_related('systeme').all()
+        if detail.objet_present
+    ]
+    present_codes = _unique_codes(system.code_systeme for system in present)
+    if len(present_codes) == 1:
+        return Systeme.objects.filter(code_systeme=present_codes[0], actif=True).first(), present_codes
+
+    if anomaly.systeme_ecart_id and present_codes:
+        configured_sources = _unique_codes(
+            FluxSynchronisation.objects.filter(
+                actif=True,
+                systeme_destination=anomaly.systeme_ecart,
+                systeme_source__code_systeme__in=present_codes,
+            ).values_list('systeme_source__code_systeme', flat=True)
+        )
+        if len(configured_sources) == 1:
+            source = Systeme.objects.filter(
+                code_systeme=configured_sources[0], actif=True
+            ).first()
+            return source, present_codes
+
+    return None, present_codes
+
+
+def _append_unknown_envoi_prediction(anomaly):
+    motif = Motif.objects.filter(code_motif='MOTIF_INCONNU', actif=True).first()
+    if motif is None:
+        return
+    source, candidates = _resolve_source_system(anomaly)
+    source_codes = [source.code_systeme] if source else []
+    rule = _generic_rule(motif, Anomalie.Niveau.ENVOI, 'MOTIF_NON_IDENTIFIABLE')
+    PredictionMotif.objects.create(
+        anomalie=anomaly,
+        source_prediction=PredictionMotif.Source.REGLE,
+        regle=rule,
+        motif=motif,
+        systeme_a_corriger_predit=source,
+        rang=1,
+        score_confiance=Decimal('1.0000'),
+        explication={
+            'diagnostic_dynamique': True,
+            'attribut_analyse': '',
+            'indices': [],
+            'message': 'Motif non identifiable',
+            'systemes_a_corriger': source_codes,
+            'systemes_sources_candidates': candidates,
+            'systeme_source_a_confirmer': source is None,
+            'role_diagnostic': 'MOTIF_NON_IDENTIFIABLE',
+            'action_apres_validation': 'RELANCER_ENVOI_SOURCE',
+        },
+    )
+
+
+def _analyze_envoi_strict(anomaly):
+    """Strict N1 order: mandatory fields, then formats, then unknown reason."""
+    PredictionMotif.objects.filter(anomalie=anomaly).delete()
+
+    mandatory = _mandatory_missing_issues(anomaly)
+    if mandatory:
+        motif = Motif.objects.filter(
+            code_motif='CHAMP_OBLIGATOIRE_ENVOI_ABSENT', actif=True
+        ).first()
+        rank = 1
+        for field in sorted(mandatory):
+            evidence = mandatory[field]
+            rank = _create_envoi_prediction(
+                anomaly,
+                rank,
+                motif,
+                field,
+                f'Le champ {field} est obligatoire et absent',
+                evidence,
+                Decimal('1.0000'),
+                'CHAMP_OBLIGATOIRE_ABSENT',
+            )
+    else:
+        formats = _format_issues(anomaly)
+        if formats:
+            motif = Motif.objects.filter(
+                code_motif='FORMAT_CHAMP_ENVOI_NON_RESPECTE', actif=True
+            ).first()
+            rank = 1
+            for field in sorted(formats):
+                evidence = formats[field]
+                rank = _create_envoi_prediction(
+                    anomaly,
+                    rank,
+                    motif,
+                    field,
+                    f'Le format du champ {field} n’est pas respecté',
+                    evidence,
+                    Decimal('0.9500'),
+                    'FORMAT_CHAMP_NON_RESPECTE',
+                )
+        else:
+            _append_unknown_envoi_prediction(anomaly)
+
+    if anomaly.predictions.exists() and anomaly.statut == anomaly.Statut.DETECTEE:
+        anomaly.statut = anomaly.Statut.ANALYSEE
+        anomaly.save(update_fields=['statut'])
 
 
 def _attribute_prediction_is_relevant(prediction, anomaly):
@@ -25,9 +329,6 @@ def _attribute_prediction_is_relevant(prediction, anomaly):
     if motif_level and motif_level != Anomalie.Niveau.ATTRIBUT:
         return False
 
-    # Pour un attribut ABSENT, une suggestion apprise/ML ne doit jamais remplacer
-    # une preuve métier. On conserve uniquement les règles qui concernent réellement
-    # cet attribut (dont les contrôles de format configurés pour le système cible).
     if anomaly.type_ecart == Anomalie.TypeEcart.ABSENT:
         if prediction.source_prediction != PredictionMotif.Source.REGLE:
             return False
@@ -54,7 +355,6 @@ def _attribute_sync_rule(motif):
 
 
 def _append_attribute_sync_constat(anomaly):
-    """Use a neutral synchronization finding when no real cause is demonstrated."""
     motif = Motif.objects.filter(
         code_motif='ATTRIBUT_NON_SYNCHRONISE', actif=True
     ).first()
@@ -91,7 +391,11 @@ def _append_attribute_sync_constat(anomaly):
 
 
 def analyze_anomaly(anomaly):
-    """Run the existing engine, then enforce strict N3 attribute isolation."""
+    """Apply strict N1 analysis and keep N2/N3 protections."""
+    if anomaly.niveau == Anomalie.Niveau.ENVOI:
+        _analyze_envoi_strict(anomaly)
+        return
+
     _base_analyze_anomaly(anomaly)
 
     if anomaly.niveau != Anomalie.Niveau.ATTRIBUT:
@@ -108,7 +412,6 @@ def analyze_anomaly(anomaly):
     if invalid_ids:
         anomaly.predictions.filter(pk__in=invalid_ids).delete()
 
-    # Recompacte les rangs afin de garder un affichage stable après filtrage.
     for rank, prediction in enumerate(anomaly.predictions.order_by('rang', 'pk'), start=1):
         if prediction.rang != rank:
             prediction.rang = rank
