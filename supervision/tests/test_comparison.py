@@ -2,7 +2,8 @@ from django.test import TestCase
 
 from supervision.models import (
     AttributDefinition, CampagneImport, CampagneSupervision, EnvoiSnapshot,
-    FichierImport, ServiceSnapshot, Systeme, Superviseur, ValeurAttributSnapshot,
+    FichierImport, Motif, ServiceSnapshot, Systeme, Superviseur,
+    ValeurAttributSnapshot,
 )
 from supervision.services.comparison import run_campaign
 from supervision.services.utils import stable_hash
@@ -38,6 +39,13 @@ class ComparisonTests(TestCase):
         self.assertEqual(anomaly.type_ecart, 'ABSENT')
 
     def test_different_attribute_values_create_synchronization_anomaly(self):
+        Motif.objects.create(
+            code_motif='ATTRIBUT_DIFFERENT',
+            libelle='Valeur d’attribut non synchronisée',
+            niveau_applicable='ATTRIBUT',
+            categorie='SYNCHRONISATION',
+            actif=True,
+        )
         campaign = CampagneSupervision.objects.create(superviseur=self.user)
         files = {code: self._file(code) for code in self.systems}
         crbt = AttributDefinition.objects.create(
@@ -67,8 +75,6 @@ class ComparisonTests(TestCase):
 
         anomaly = campaign.anomalies.get(niveau='ATTRIBUT', type_ecart='DIFFERENT')
         self.assertEqual(anomaly.attribut, crbt)
-        # systeme_ecart remains an observation from comparison, but the diagnosis
-        # must not auto-select it as the system to correct.
         self.assertEqual(anomaly.systeme_ecart.code_systeme, 'SIBO')
         prediction = anomaly.predictions.get()
         self.assertIsNone(prediction.systeme_a_corriger_predit)
