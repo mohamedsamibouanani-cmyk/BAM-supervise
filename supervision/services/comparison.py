@@ -8,7 +8,7 @@ from supervision.models import (
     DetailComparaison, EnvoiSnapshot, HistoriqueAnomalie, ServiceSnapshot,
     Systeme, ValeurAttributSnapshot, VerificationResolution,
 )
-from .analysis import analyze_anomaly
+from .analysis_runtime import analyze_anomaly
 from .security import masked_sensitive_value
 from .utils import stable_hash
 
