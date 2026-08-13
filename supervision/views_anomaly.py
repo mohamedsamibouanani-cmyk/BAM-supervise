@@ -27,7 +27,6 @@ def _audit(request, action, entity, entity_id, new_values=None, old_values=None)
 
 
 def _prediction_target_system(prediction):
-    """Return the first system confirmed by current evidence, never the observed-system fallback."""
     codes = prediction_target_codes(prediction)
     if not codes:
         return None
@@ -36,7 +35,11 @@ def _prediction_target_system(prediction):
 
 def _create_learning_example(validation):
     anomaly = validation.anomalie
-    ExempleApprentissage.objects.create(
+    # Niveau SERVICE = constat de présence uniquement. Il n'existe pas de motif
+    # métier à apprendre à ce niveau, donc aucune donnée d'apprentissage motif/cause.
+    if anomaly.niveau == Anomalie.Niveau.SERVICE:
+        return None
+    return ExempleApprentissage.objects.create(
         validation=validation,
         motif_label=validation.motif_final,
         systeme_a_corriger_label=validation.systeme_a_corriger_final,
@@ -73,8 +76,6 @@ def anomaly_detail(request, pk):
         pk=pk,
     )
 
-    # Older dossiers may contain routing metadata produced by an earlier engine
-    # version. Refresh only the targets; prediction IDs and audit history stay intact.
     refresh_prediction_routing(anomaly)
 
     final_validations = list(
@@ -105,9 +106,6 @@ def anomaly_validate(request, pk):
         Anomalie.objects.select_related('systeme_ecart', 'attribut'),
         pk=pk,
     )
-
-    # Re-evaluate responsible systems before both rendering and accepting the form.
-    # This prevents a stale SIBO target from surviving after the routing rules evolve.
     refresh_prediction_routing(anomaly)
 
     if request.method == 'POST':
@@ -144,9 +142,6 @@ def anomaly_validate(request, pk):
                         _create_learning_example(validation)
                         validations.append(validation)
                 else:
-                    # Compatibilité avec le workflow historique : une cause
-                    # explicite peut être validée même si le moteur n'a créé aucune
-                    # PredictionMotif pour ce dossier.
                     validation = ValidationMotif.objects.create(
                         anomalie=anomaly,
                         prediction_retenue=None,
@@ -164,7 +159,7 @@ def anomaly_validate(request, pk):
                 motif_final = form.cleaned_data.get('motif_final')
                 nouveau_motif = (form.cleaned_data.get('nouveau_motif') or '').strip()
                 final_decision = decision
-                if nouveau_motif:
+                if nouveau_motif and anomaly.niveau != Anomalie.Niveau.SERVICE:
                     motif_final = Motif.objects.filter(libelle__iexact=nouveau_motif).first()
                     if not motif_final:
                         base_code = slugify(nouveau_motif).replace('-', '_').upper()[:60] or 'MOTIF_APPRIS'
@@ -200,7 +195,7 @@ def anomaly_validate(request, pk):
             if not validations:
                 form.add_error(
                     None,
-                    'Aucun système responsable n’est confirmé par les données pour les causes sélectionnées. '
+                    'Aucun système responsable n’est confirmé par les données. '
                     'Révisez le diagnostic au lieu de notifier le système observé.',
                 )
             else:
@@ -208,41 +203,64 @@ def anomaly_validate(request, pk):
                 anomaly.statut = Anomalie.Statut.VALIDEE
                 anomaly.save(update_fields=['statut'])
 
-                labels = ', '.join(v.motif_final.libelle for v in validations)
+                if anomaly.niveau == Anomalie.Niveau.SERVICE:
+                    targets = ', '.join(dict.fromkeys(
+                        v.systeme_a_corriger_final.code_systeme for v in validations
+                    ))
+                    history_comment = (
+                        f'Constat validé : service {anomaly.code_service} non synchronisé. '
+                        f'Système(s) concerné(s) : {targets}.'
+                    )
+                    audit_values = {
+                        'niveau': 'SERVICE',
+                        'constat': 'SERVICE_ABSENT',
+                        'code_service': anomaly.code_service,
+                        'systemes_concernes': [
+                            v.systeme_a_corriger_final.code_systeme for v in validations
+                        ],
+                    }
+                else:
+                    labels = ', '.join(v.motif_final.libelle for v in validations)
+                    history_comment = f'{len(validations)} cause(s) validée(s) : {labels}'
+                    audit_values = {
+                        'nb_causes': len(validations),
+                        'causes': [
+                            {
+                                'motif': v.motif_final.code_motif,
+                                'systeme_principal': v.systeme_a_corriger_final.code_systeme,
+                                'prediction': v.prediction_retenue_id,
+                            }
+                            for v in validations
+                        ],
+                    }
+
                 HistoriqueAnomalie.objects.create(
                     anomalie=anomaly,
                     ancien_statut=old_status,
                     nouveau_statut=Anomalie.Statut.VALIDEE,
                     source_evenement='SUPERVISEUR',
                     superviseur=request.user,
-                    commentaire=f'{len(validations)} cause(s) validée(s) : {labels}',
+                    commentaire=history_comment,
                 )
-
-                _audit(request, 'VALIDATE', 'validation_motif', validations[0].pk, {
-                    'nb_causes': len(validations),
-                    'causes': [
-                        {
-                            'motif': v.motif_final.code_motif,
-                            'systeme_principal': v.systeme_a_corriger_final.code_systeme,
-                            'prediction': v.prediction_retenue_id,
-                        }
-                        for v in validations
-                    ],
-                })
+                _audit(request, 'VALIDATE', 'validation_motif', validations[0].pk, audit_values)
 
                 try:
-                    # Le service agrège toutes les validations finales du dossier et
-                    # envoie un seul message par système avec uniquement les causes
-                    # qui concernent ce système.
                     send_validation_email(validations[0])
-                    messages.success(
-                        request,
-                        f'{len(validations)} cause(s) validée(s). Les équipes responsables ont été notifiées.',
-                    )
+                    if anomaly.niveau == Anomalie.Niveau.SERVICE:
+                        messages.success(
+                            request,
+                            'Constat validé. Le système concerné a été notifié.',
+                        )
+                    else:
+                        messages.success(
+                            request,
+                            f'{len(validations)} cause(s) validée(s). Les équipes responsables ont été notifiées.',
+                        )
                 except Exception as exc:
+                    prefix = 'Constat enregistré' if anomaly.niveau == Anomalie.Niveau.SERVICE else 'Décision enregistrée'
                     messages.warning(
                         request,
-                        f'Décision enregistrée, mais certaines notifications n’ont pas pu être envoyées : {exc}',
+                        f'{prefix}, mais certaines notifications n’ont pas pu être envoyées : {exc}',
                     )
                 return redirect('anomaly_detail', pk=pk)
     else:
