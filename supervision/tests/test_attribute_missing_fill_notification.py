@@ -4,7 +4,7 @@ from django.test import TestCase, override_settings
 from supervision.models import (
     Anomalie, AttributDefinition, CampagneImport, CampagneSupervision,
     ContactGroupe, EnvoiSnapshot, FichierImport, GroupeResponsable,
-    Notification, Systeme, Superviseur, ValidationMotif,
+    Notification, ServiceSnapshot, Systeme, Superviseur, ValidationMotif,
     ValeurAttributSnapshot,
 )
 from supervision.services.comparison import run_campaign
@@ -39,8 +39,7 @@ class AttributeMissingFillNotificationTests(TestCase):
 
     def _campaign_with_missing_attribute(self, key, source_values):
         campaign = CampagneSupervision.objects.create(superviseur=self.user)
-        files = {}
-        shipments = {}
+        services = {}
         for code in ('SMI', 'SICOM', 'SIBO'):
             file_import = FichierImport.objects.create(
                 systeme=self.systems[code],
@@ -57,8 +56,7 @@ class AttributeMissingFillNotificationTests(TestCase):
                 systeme=self.systems[code],
                 fichier_import=file_import,
             )
-            files[code] = file_import
-            shipments[code] = EnvoiSnapshot.objects.create(
+            shipment = EnvoiSnapshot.objects.create(
                 fichier_import=file_import,
                 code_envoi=f'E-{key}',
                 num_commande=f'CMD-{key}',
@@ -66,16 +64,18 @@ class AttributeMissingFillNotificationTests(TestCase):
                 ligne_premiere=2,
                 empreinte_envoi=stable_hash(key, code, 'shipment'),
             )
+            services[code] = ServiceSnapshot.objects.create(
+                envoi_snapshot=shipment,
+                code_service='30100',
+                libelle_service='Service CRBT',
+                ligne_source=2,
+                empreinte_service=stable_hash(key, code, '30100'),
+            )
 
-        attribute = AttributDefinition.objects.create(
-            code_attribut=f'ATTR_{key}',
-            libelle=f'Attribut {key}',
-            portee=AttributDefinition.Portee.ENVOI,
-            type_valeur=AttributDefinition.TypeValeur.NOMBRE,
-        )
+        attribute = AttributDefinition.objects.get(code_attribut='MONTANT_CRBT')
         for code, raw in source_values.items():
             ValeurAttributSnapshot.objects.create(
-                envoi_snapshot=shipments[code],
+                service_snapshot=services[code],
                 attribut=attribute,
                 valeur_brute=str(raw),
                 valeur_normalisee=str(raw),
