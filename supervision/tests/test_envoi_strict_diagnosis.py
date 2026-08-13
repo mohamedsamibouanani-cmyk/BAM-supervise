@@ -12,6 +12,11 @@ from supervision.services.notifications import send_validation_email
 from supervision.services.utils import stable_hash
 
 
+@override_settings(
+    EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+    EMAIL_ALLOW_SIMULATED_DELIVERY=True,
+    DEFAULT_FROM_EMAIL='notifications@bam-supervise.ma',
+)
 class StrictEnvoiDiagnosisTests(TestCase):
     def setUp(self):
         call_command('seed_bam', verbosity=0)
@@ -63,7 +68,18 @@ class StrictEnvoiDiagnosisTests(TestCase):
         )
         return shipment, service
 
-    def test_mandatory_missing_has_priority_over_format(self):
+    def _contact(self, code):
+        group = GroupeResponsable.objects.get(
+            systeme=self.systems[code], nom_groupe=f'Groupe {code}'
+        )
+        ContactGroupe.objects.create(
+            groupe=group,
+            nom_complet=f'Collaborateur {code}',
+            email=f'collaborateur.{code.lower()}@bam-supervise.ma',
+        )
+        return group
+
+    def test_mandatory_missing_is_the_only_specific_n1_cause(self):
         campaign, files = self._campaign('N1-MANDATORY-FIRST')
         snapshots = {
             code: self._shipment(files[code], 'E-N1-MANDATORY', code)
@@ -142,8 +158,8 @@ class StrictEnvoiDiagnosisTests(TestCase):
             ).exists()
         )
 
-    def test_format_is_checked_only_when_mandatory_fields_are_complete(self):
-        campaign, files = self._campaign('N1-FORMAT-SECOND')
+    def test_format_without_missing_mandatory_field_becomes_unknown_at_n1(self):
+        campaign, files = self._campaign('N1-NO-FORMAT-MOTIF')
         snapshots = {
             code: self._shipment(files[code], 'E-N1-FORMAT', code)
             for code in ('SMI', 'SICOM')
@@ -178,33 +194,107 @@ class StrictEnvoiDiagnosisTests(TestCase):
             systeme_ecart=self.systems['SIBO'],
         )
         prediction = anomaly.predictions.get()
-        self.assertEqual(
-            prediction.motif.code_motif,
-            'FORMAT_CHAMP_ENVOI_NON_RESPECTE',
+        self.assertEqual(prediction.motif.code_motif, 'MOTIF_INCONNU')
+        self.assertEqual(prediction.explication['role_diagnostic'], 'MOTIF_NON_IDENTIFIABLE')
+        self.assertFalse(
+            anomaly.predictions.filter(
+                motif__code_motif='FORMAT_CHAMP_ENVOI_NON_RESPECTE'
+            ).exists()
         )
-        self.assertEqual(
-            prediction.explication['message'],
-            'Le format du champ PRIX_CIBLE_TEST n’est pas respecté',
-        )
-        self.assertEqual(prediction.explication['systemes_a_corriger'], ['SMI'])
 
-    @override_settings(
-        EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
-        EMAIL_ALLOW_SIMULATED_DELIVERY=True,
-        DEFAULT_FROM_EMAIL='notifications@bam-supervise.ma',
-    )
-    def test_unknown_reason_never_sends_before_supervisor_validation(self):
+    def test_mandatory_missing_email_targets_source_after_validation(self):
+        campaign, files = self._campaign('N1-MANDATORY-MAIL')
+        snapshots = {
+            code: self._shipment(files[code], 'E-N1-MANDATORY-MAIL', code)
+            for code in ('SMI', 'SICOM')
+        }
+        mandatory = AttributDefinition.objects.create(
+            code_attribut='CHAMP_OBLIGATOIRE_MAIL',
+            libelle='Champ obligatoire mail',
+            portee=AttributDefinition.Portee.ENVOI,
+            type_valeur=AttributDefinition.TypeValeur.TEXTE,
+        )
+        ServiceAttributRegle.objects.create(
+            attribut=mandatory,
+            systeme=self.systems['SIBO'],
+            obligatoire=True,
+            regle_validation={},
+            message_erreur='Champ obligatoire.',
+        )
+        ValeurAttributSnapshot.objects.create(
+            envoi_snapshot=snapshots['SMI'][0], attribut=mandatory,
+            valeur_brute='', valeur_normalisee=None,
+            est_vide=True, format_source_conforme=None,
+        )
+        ValeurAttributSnapshot.objects.create(
+            envoi_snapshot=snapshots['SICOM'][0], attribut=mandatory,
+            valeur_brute='OK', valeur_normalisee='OK',
+            est_vide=False, format_source_conforme=True,
+        )
+        self._contact('SMI')
+
+        run_campaign(campaign)
+        anomaly = campaign.anomalies.get(
+            niveau=Anomalie.Niveau.ENVOI,
+            systeme_ecart=self.systems['SIBO'],
+        )
+        prediction = anomaly.predictions.get()
+        self.assertEqual(prediction.systeme_a_corriger_predit, self.systems['SMI'])
+        self.assertEqual(Notification.objects.count(), 0)
+
+        validation = ValidationMotif.objects.create(
+            anomalie=anomaly,
+            prediction_retenue=prediction,
+            motif_final=prediction.motif,
+            systeme_a_corriger_final=self.systems['SMI'],
+            superviseur=self.user,
+            decision=ValidationMotif.Decision.ACCEPTE,
+            commentaire='Renseigner le champ obligatoire.',
+            version_validation=1,
+            est_finale=True,
+        )
+        send_validation_email(validation)
+
+        notification = Notification.objects.get()
+        self.assertEqual(notification.groupe.systeme, self.systems['SMI'])
+        self.assertIn('CHAMP OBLIGATOIRE À RENSEIGNER', notification.objet)
+        self.assertIn('Système source à corriger : SMI', notification.message)
+        self.assertIn('- CHAMP_OBLIGATOIRE_MAIL', notification.message)
+        self.assertIn('renseigner ce ou ces champs dans SMI', notification.message)
+
+    def test_unknown_reason_sends_complete_reentry_data_only_after_validation(self):
         campaign, files = self._campaign('N1-UNKNOWN-VALIDATION')
-        self._shipment(files['SMI'], 'E-N1-UNKNOWN', 'SMI')
+        shipment, service = self._shipment(files['SMI'], 'E-N1-UNKNOWN', 'SMI')
 
-        group = GroupeResponsable.objects.get(
-            systeme=self.systems['SMI'], nom_groupe='Groupe SMI'
+        envoi_attribute = AttributDefinition.objects.create(
+            code_attribut='REFERENCE_CLIENT_TEST',
+            libelle='Référence client test',
+            portee=AttributDefinition.Portee.ENVOI,
+            type_valeur=AttributDefinition.TypeValeur.TEXTE,
         )
-        ContactGroupe.objects.create(
-            groupe=group,
-            nom_complet='Collaborateur SMI',
-            email='collaborateur.smi@bam-supervise.ma',
+        service_attribute = AttributDefinition.objects.create(
+            code_attribut='MONTANT_SERVICE_TEST',
+            libelle='Montant service test',
+            portee=AttributDefinition.Portee.SERVICE,
+            type_valeur=AttributDefinition.TypeValeur.NOMBRE,
         )
+        ValeurAttributSnapshot.objects.create(
+            envoi_snapshot=shipment,
+            attribut=envoi_attribute,
+            valeur_brute='REF-42',
+            valeur_normalisee='REF-42',
+            est_vide=False,
+            format_source_conforme=True,
+        )
+        ValeurAttributSnapshot.objects.create(
+            service_snapshot=service,
+            attribut=service_attribute,
+            valeur_brute='750',
+            valeur_normalisee='750',
+            est_vide=False,
+            format_source_conforme=True,
+        )
+        self._contact('SMI')
 
         run_campaign(campaign)
         self.assertEqual(Notification.objects.count(), 0)
@@ -226,7 +316,7 @@ class StrictEnvoiDiagnosisTests(TestCase):
             systeme_a_corriger_final=self.systems['SMI'],
             superviseur=self.user,
             decision=ValidationMotif.Decision.ACCEPTE,
-            commentaire='Relancer la synchronisation.',
+            commentaire='Ressaisir complètement l’envoi.',
             version_validation=1,
             est_finale=True,
         )
@@ -234,7 +324,13 @@ class StrictEnvoiDiagnosisTests(TestCase):
 
         notification = Notification.objects.get()
         self.assertEqual(notification.groupe.systeme, self.systems['SMI'])
-        self.assertIn('RELANCE ENVOI', notification.objet)
-        self.assertIn('Merci de relancer l’envoi / la synchronisation', notification.message)
+        self.assertIn('RESSAISIE ENVOI', notification.objet)
+        self.assertIn('ressaisir complètement l’envoi CODE_ENVOI=E-N1-UNKNOWN', notification.message)
+        self.assertIn('NUM_COMMANDE = CMD-001', notification.message)
+        self.assertIn('CODE_ENVOI = E-N1-UNKNOWN', notification.message)
+        self.assertIn('REFERENCE_CLIENT_TEST = REF-42', notification.message)
+        self.assertIn('ARTICLE = 30100', notification.message)
+        self.assertIn('DES_ARTICLE = Service test', notification.message)
+        self.assertIn('MONTANT_SERVICE_TEST = 750', notification.message)
         anomaly.refresh_from_db()
         self.assertEqual(anomaly.statut, Anomalie.Statut.NOTIFIEE)
