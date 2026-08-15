@@ -128,14 +128,20 @@ class MultiCauseValidationForm(forms.Form):
                 'CONSTAT_ATTRIBUT', 'CONSTAT_ATTRIBUT_DIFFERENT'
             }:
                 return explanation.get('message') or prediction.motif.libelle
+
             if anomaly.niveau == anomaly.Niveau.ENVOI and explanation.get('message'):
                 label = explanation['message']
-                if explanation.get('role_diagnostic') == 'MOTIF_NON_IDENTIFIABLE':
-                    return label
-                score = float(prediction.score_confiance) * 100
-                return f'{label} · {score:.0f}%'
-            score = float(prediction.score_confiance) * 100
-            return f'{prediction.motif.libelle} · {score:.0f}%'
+            else:
+                label = prediction.motif.libelle
+
+            if explanation.get('role_diagnostic') == 'MOTIF_NON_IDENTIFIABLE':
+                return label
+            if prediction.source_prediction == PredictionMotif.Source.ML:
+                probability = float(prediction.score_confiance) * 100
+                return f'{label} · probabilité ML {probability:.0f}%'
+            if prediction.source_prediction == PredictionMotif.Source.APPRENTISSAGE:
+                return f'{label} · cas similaire validé'
+            return label
 
         self.fields['predictions'].label_from_instance = label_for
 
