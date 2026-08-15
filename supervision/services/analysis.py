@@ -49,7 +49,7 @@ def _structural_issues(anomaly, field):
     issues = []
     for system, shipment in _candidate_source_envois(None, anomaly):
         if field == 'NUM_COMMANDE' and not shipment.num_commande.strip():
-            issues.append({'systeme': system.code_systeme, 'champ': field, 'constat': 'Champ obligatoire vide'})
+            issues.append({'systeme': system.code_systeme, 'champ': field, 'constat': 'Champ vide ou absent dans la source'})
         if field in {'ARTICLE', 'DES_ARTICLE'}:
             services = list(shipment.services.all())
             if field == 'ARTICLE' and not services:
@@ -120,7 +120,7 @@ def _diagnostic_evidence(rule, anomaly):
 
 
 def _correction_system_codes(rule, anomaly):
-    """Return every system that contains the detected cause, without hard-coded system names."""
+    """Return every source system where the concrete issue is observed."""
     if rule.flux_id:
         return [rule.flux.systeme_source.code_systeme]
 
@@ -142,6 +142,49 @@ def _correction_system_codes(rule, anomaly):
     return []
 
 
+def _missing_system_codes(anomaly):
+    return list(
+        anomaly.details.filter(objet_present=False)
+        .select_related('systeme')
+        .values_list('systeme__code_systeme', flat=True)
+    )
+
+
+def _rule_message(rule, anomaly, evidence):
+    """Explain an observed business fact without presenting a statistical confidence."""
+    if not evidence:
+        return 'Constat issu des règles métier et des données importées.'
+
+    fields = []
+    source_systems = []
+    for item in evidence:
+        field = item.get('champ')
+        system = item.get('systeme')
+        if field and field not in fields:
+            fields.append(field)
+        if system and system not in source_systems:
+            source_systems.append(system)
+
+    field_text = ', '.join(fields) if fields else 'un champ analysé'
+    source_text = ', '.join(source_systems) if source_systems else 'les systèmes où l’élément est présent'
+    missing_systems = _missing_system_codes(anomaly)
+
+    if anomaly.niveau == 'ENVOI' and anomaly.type_ecart == 'ABSENT' and missing_systems:
+        missing_text = ', '.join(missing_systems)
+        return (
+            f'Constat : {field_text} est vide, absent ou non conforme dans {source_text}, '
+            f'alors que l’envoi est absent dans {missing_text}. Ce champ peut être requis par le système '
+            'qui n’a pas reçu l’envoi ; il constitue donc une cause possible de la non-synchronisation. '
+            'La validation du superviseur reste nécessaire.'
+        )
+
+    return (
+        f'Constat : une anomalie est observée sur {field_text} dans {source_text}. '
+        'Cette information provient directement des données importées et des règles métier ; '
+        'elle ne constitue pas une probabilité.'
+    )
+
+
 def _learned_signature(anomaly):
     return {
         'niveau': anomaly.niveau,
@@ -153,7 +196,7 @@ def _learned_signature(anomaly):
 
 
 def _append_learned_predictions(anomaly, rank, used_motif_ids):
-    """Reuse validated human decisions before relying on an external ML model."""
+    """Reuse validated human decisions before relying on the statistical ML model."""
     signature = _learned_signature(anomaly)
     examples = (
         ExempleApprentissage.objects.filter(eligible=True)
@@ -177,7 +220,7 @@ def _append_learned_predictions(anomaly, rank, used_motif_ids):
             rang=rank,
             score_confiance=Decimal('0.7500'),
             explication={
-                'message': 'Motif reconnu à partir d’un dossier similaire validé par le superviseur.',
+                'message': 'Cas similaire déjà validé par le superviseur. Aucun pourcentage n’est présenté : il s’agit d’une mémoire de décision, pas d’une probabilité ML.',
                 'origine': f'Dossier #{example.validation.anomalie_id}',
                 'systemes_a_corriger': [example.systeme_a_corriger_label.code_systeme],
             },
@@ -196,6 +239,7 @@ def analyze_anomaly(anomaly):
         if rank > 3:
             break
         if _rule_matches(rule, anomaly):
+            evidence = _diagnostic_evidence(rule, anomaly)
             target_codes = _correction_system_codes(rule, anomaly)
             predicted_system = None
             if target_codes:
@@ -214,8 +258,10 @@ def analyze_anomaly(anomaly):
                     'regle': rule.code_regle,
                     'type_controle': rule.type_controle,
                     'attribut_analyse': rule.attribut.code_attribut if rule.attribut_id else None,
-                    'indices': _diagnostic_evidence(rule, anomaly),
+                    'indices': evidence,
+                    'message': _rule_message(rule, anomaly, evidence),
                     'systemes_a_corriger': target_codes,
+                    'afficher_pourcentage': False,
                 },
             )
             used_motif_ids.add(rule.motif_suggere_id)
@@ -236,8 +282,9 @@ def analyze_anomaly(anomaly):
                 rang=1,
                 score_confiance=Decimal('0.1000'),
                 explication={
-                    'message': 'Aucune règle ou prédiction ML suffisamment précise.',
+                    'message': 'Aucun constat métier suffisamment précis et aucune prédiction ML disponible. Le superviseur doit identifier la cause.',
                     'systemes_a_corriger': target_codes,
+                    'afficher_pourcentage': False,
                 },
             )
     if anomaly.predictions.exists() and anomaly.statut == anomaly.Statut.DETECTEE:
@@ -304,7 +351,12 @@ def _append_ml_predictions(anomaly, rank):
                 systeme_a_corriger_predit=anomaly.systeme_ecart,
                 rang=rank,
                 score_confiance=Decimal(str(round(float(score), 4))),
-                explication={'features': features, 'systemes_a_corriger': target_codes},
+                explication={
+                    'features': features,
+                    'systemes_a_corriger': target_codes,
+                    'afficher_pourcentage': True,
+                    'message': 'Probabilité calculée par le modèle de Machine Learning à partir des décisions validées précédemment.',
+                },
             )
             rank += 1
         return rank
