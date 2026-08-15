@@ -20,6 +20,13 @@
     </div>
   </header>
 
+  {% if anomaly.niveau != 'SERVICE' %}
+  <div class="bam-section-note mb-3">
+    <i class="bi bi-cpu"></i>
+    <div><strong>Lecture des propositions :</strong> un pourcentage représente uniquement une probabilité calculée par un modèle de Machine Learning. Les règles métier et les cas similaires validés sont présentés sans pourcentage.</div>
+  </div>
+  {% endif %}
+
   <section class="validation-card" aria-labelledby="validation-diagnostic-title">
     <form method="post" id="validationForm" data-anomaly-level="{{ anomaly.niveau }}">{% csrf_token %}
       <div hidden>{{ form.prediction }}</div>
@@ -116,7 +123,7 @@
               <label class="form-label" for="{{ form.nouveau_motif.id_for_label }}">Nouvelle cause</label>
               {{ form.nouveau_motif }}
               {% if form.nouveau_motif.errors %}<div class="text-danger small mt-1" role="alert">{{ form.nouveau_motif.errors }}</div>{% endif %}
-              <small>Une cause confirmée pourra être réutilisée pour des dossiers similaires.</small>
+              <small>Une cause confirmée pourra être réutilisée pour des dossiers similaires et alimenter la base d’apprentissage.</small>
             </div>
           {% else %}
             <div hidden>{{ form.motif_final }}{{ form.nouveau_motif }}</div>
@@ -146,7 +153,7 @@
 
 <div id="predictionMetadata" hidden>
   {% for prediction in anomaly.predictions.all %}
-    <span data-prediction-id="{{ prediction.pk }}" data-motif-id="{{ prediction.motif_id }}" data-motif="{% if anomaly.niveau == 'ENVOI' and prediction.explication.message %}{{ prediction.explication.message }}{% else %}{{ prediction.motif.libelle }}{% endif %}" data-score="{% widthratio prediction.score_confiance 1 100 %}" data-system-id="{{ prediction.systeme_a_corriger_predit_id|default:'' }}" data-targets="{% if prediction.explication.systemes_a_corriger %}{{ prediction.explication.systemes_a_corriger|join:',' }}{% elif prediction.systeme_a_corriger_predit %}{{ prediction.systeme_a_corriger_predit.code_systeme }}{% endif %}"></span>
+    <span data-prediction-id="{{ prediction.pk }}" data-motif-id="{{ prediction.motif_id }}" data-motif="{% if anomaly.niveau == 'ENVOI' and prediction.explication.message %}{{ prediction.explication.message }}{% else %}{{ prediction.motif.libelle }}{% endif %}" data-score="{% if prediction.source_prediction == 'ML' %}{% widthratio prediction.score_confiance 1 100 %}{% endif %}" data-source="{{ prediction.source_prediction }}" data-system-id="{{ prediction.systeme_a_corriger_predit_id|default:'' }}" data-targets="{% if prediction.explication.systemes_a_corriger %}{{ prediction.explication.systemes_a_corriger|join:',' }}{% elif prediction.systeme_a_corriger_predit %}{{ prediction.systeme_a_corriger_predit.code_systeme }}{% endif %}"></span>
   {% endfor %}
 </div>
 {% endblock %}
