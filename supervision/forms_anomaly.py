@@ -105,14 +105,27 @@ class MultiCauseValidationForm(forms.Form):
                     difference_constat = candidate
                     break
         if difference_constat:
-            self.fields['systeme_a_corriger_final'].label = 'Système à corriger (à confirmer)'
+            # Pour une différence de valeur, la valeur de référence n'est pas encore
+            # déterminée automatiquement. Le superviseur peut donc confirmer un seul
+            # système à corriger (2 systèmes portent la référence) OU deux systèmes
+            # à corriger (1 seul système porte la référence).
+            self.fields['systeme_a_corriger_final'] = forms.ModelMultipleChoiceField(
+                queryset=Systeme.objects.filter(actif=True).order_by('ordre_comparaison'),
+                required=True,
+                label='Système(s) à corriger (1 ou 2)',
+                widget=forms.CheckboxSelectMultiple,
+                help_text=(
+                    'Sélectionnez 1 système si les deux autres portent la valeur de référence, '
+                    'ou 2 systèmes si le troisième porte la valeur de référence.'
+                ),
+            )
             self.fields['decision'].choices = [
-                ('MODIFIE', 'Choisir le système à corriger et valider'),
+                ('MODIFIE', 'Choisir le ou les systèmes à corriger et valider'),
                 ('INCONNU', 'À investiguer'),
             ]
             self.fields['decision'].initial = 'MODIFIE'
             self.initial.pop('systeme_a_corriger_final', None)
-            self.fields['systeme_a_corriger_final'].initial = None
+            self.fields['systeme_a_corriger_final'].initial = []
             # La cause reste un constat technique tant que la règle métier de
             # sélection de la valeur de référence n'a pas été validée.
             self.fields['motif_final'].widget = forms.HiddenInput()
@@ -164,18 +177,19 @@ class MultiCauseValidationForm(forms.Form):
             self.fields['predictions'].initial = [p.pk for p in defaults]
             self.fields['prediction'].initial = primary.pk
             self.fields['motif_final'].initial = primary.motif_id
-            if primary.systeme_a_corriger_predit_id:
-                self.fields['systeme_a_corriger_final'].initial = primary.systeme_a_corriger_predit_id
-            else:
-                codes = (primary.explication or {}).get('systemes_a_corriger') or []
-                if codes:
-                    target = Systeme.objects.filter(code_systeme=codes[0], actif=True).first()
-                    if target:
-                        self.fields['systeme_a_corriger_final'].initial = target.pk
+            if not difference_constat:
+                if primary.systeme_a_corriger_predit_id:
+                    self.fields['systeme_a_corriger_final'].initial = primary.systeme_a_corriger_predit_id
+                else:
+                    codes = (primary.explication or {}).get('systemes_a_corriger') or []
+                    if codes:
+                        target = Systeme.objects.filter(code_systeme=codes[0], actif=True).first()
+                        if target:
+                            self.fields['systeme_a_corriger_final'].initial = target.pk
 
         if difference_constat:
             self.initial.pop('systeme_a_corriger_final', None)
-            self.fields['systeme_a_corriger_final'].initial = None
+            self.fields['systeme_a_corriger_final'].initial = []
 
     def _clean_service(self, cleaned):
         decision = cleaned.get('decision')
@@ -218,6 +232,8 @@ class MultiCauseValidationForm(forms.Form):
     def _clean_attribute_difference(self, cleaned):
         prediction = cleaned.get('prediction') or self.anomaly.predictions.order_by('rang').first()
         decision = cleaned.get('decision')
+        systems = list(cleaned.get('systeme_a_corriger_final') or [])
+
         if decision == 'INCONNU':
             unknown = Motif.objects.filter(code_motif='MOTIF_INCONNU', actif=True).first()
             if unknown is None:
@@ -231,11 +247,22 @@ class MultiCauseValidationForm(forms.Form):
             cleaned['predictions_selectionnees'] = [prediction]
             cleaned['motif_final'] = prediction.motif
             cleaned['decision'] = 'MODIFIE'
-        if not cleaned.get('systeme_a_corriger_final'):
+
+        if not systems:
             raise forms.ValidationError(
-                'Choisissez explicitement le système à corriger. '
+                'Choisissez au moins un système à corriger. '
                 'BAM Supervise ne détermine pas encore automatiquement la valeur de référence.'
             )
+        if len(systems) > 2:
+            raise forms.ValidationError(
+                'Sélectionnez au maximum deux systèmes à corriger : au moins un des trois '
+                'systèmes doit rester la référence de la valeur validée.'
+            )
+
+        cleaned['systemes_a_corriger_finaux'] = systems
+        # Compatibilité : les traitements historiques peuvent encore lire la première
+        # cible, tandis que la vue crée une validation finale distincte pour chaque cible.
+        cleaned['systeme_a_corriger_final'] = systems[0]
         cleaned['nouveau_motif'] = ''
         return cleaned
 
