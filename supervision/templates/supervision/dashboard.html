@@ -1,7 +1,10 @@
 {% extends 'supervision/base.html' %}
-{% load static %}
+{% load static ml_dashboard %}
 {% block title %}Tableau de bord · BAM Supervise{% endblock %}
-{% block head %}<script src="{% static 'vendor/chart/chart.umd.min.js' %}"></script>{% endblock %}
+{% block head %}
+<script src="{% static 'vendor/chart/chart.umd.min.js' %}"></script>
+<link rel="stylesheet" href="{% static 'supervision/dashboard-ml.css' %}">
+{% endblock %}
 {% block content %}
 <div class="page-header dashboard-heading">
   <div>
@@ -114,6 +117,8 @@
     </div>
   </section>
 </div>
+
+{% ml_dashboard_card %}
 
 <section class="panel dashboard-campaigns">
   <div class="panel-header">
