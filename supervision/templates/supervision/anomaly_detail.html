@@ -93,12 +93,13 @@
                     <div class="cause-topline compact-cause-topline">
                       <strong>{% if anomaly.niveau == 'ENVOI' and p.explication.message %}{{ p.explication.message }}{% else %}{{ p.motif.libelle }}{% endif %}</strong>
                     </div>
+                    <small>Source : {{ p.get_source_prediction_display }}</small>
                     {% if p.explication.role_diagnostic == 'MOTIF_NON_IDENTIFIABLE' and p.explication.systeme_source_a_confirmer %}
                       <small>Le système source doit être confirmé par le superviseur avant toute notification.</small>
                     {% endif %}
                   </div>
-                  {% if p.explication.role_diagnostic != 'CONSTAT_ATTRIBUT' and p.explication.role_diagnostic != 'MOTIF_NON_IDENTIFIABLE' %}
-                    <div class="cause-side compact-cause-side"><span class="cause-score">{% widthratio p.score_confiance 1 100 %}%</span></div>
+                  {% if p.source_prediction == 'ML' %}
+                    <div class="cause-side compact-cause-side"><span class="cause-score" title="Probabilité calculée par le modèle de Machine Learning">{% widthratio p.score_confiance 1 100 %}%</span></div>
                   {% endif %}
                 </article>
               {% empty %}<div class="anomaly-empty compact-empty"><strong>Diagnostic non identifié.</strong></div>{% endfor %}
