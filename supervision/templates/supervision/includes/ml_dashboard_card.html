@@ -1,0 +1,66 @@
+<section class="panel dashboard-ml-panel" aria-labelledby="ml-panel-title">
+  <div class="panel-header">
+    <div>
+      <div class="page-eyebrow"><i class="bi bi-cpu"></i> Aide à la décision</div>
+      <h2 class="panel-title" id="ml-panel-title">Machine Learning</h2>
+      <p class="panel-subtitle">Le modèle apprend uniquement à partir des décisions validées par le superviseur. Il propose une probabilité, mais ne prend jamais la décision finale.</p>
+    </div>
+    {% if ml_model %}
+      <span class="status-badge status-RESOLUE"><i class="bi bi-check-circle-fill"></i> Modèle actif</span>
+    {% elif ml_ready %}
+      <span class="status-badge status-ANALYSEE"><i class="bi bi-hourglass-split"></i> Entraînement possible</span>
+    {% else %}
+      <span class="status-badge status-ANALYSEE"><i class="bi bi-database"></i> Apprentissage en cours</span>
+    {% endif %}
+  </div>
+
+  <div class="panel-body">
+    {% if ml_model %}
+      <div class="ml-dashboard-hero">
+        <div class="ml-dashboard-orb"><i class="bi bi-stars"></i></div>
+        <div class="ml-dashboard-hero-copy">
+          <span>Version active</span>
+          <strong>{{ ml_model.version_modele }}</strong>
+          <small>{{ ml_model.algorithme }}</small>
+        </div>
+        {% if ml_accuracy_percent is not None %}
+          <div class="ml-dashboard-probability" title="Mesure issue du modèle ML sur le jeu de validation">
+            <span>Précision ML</span>
+            <strong>{{ ml_accuracy_percent }}%</strong>
+            {% if ml_validation_size %}<small>{{ ml_validation_size }} cas de validation</small>{% endif %}
+          </div>
+        {% endif %}
+      </div>
+
+      <div class="ml-dashboard-grid">
+        <div class="ml-dashboard-stat"><span>Décisions apprises</span><strong>{{ ml_model.nb_exemples }}</strong><small>validations humaines utilisées</small></div>
+        <div class="ml-dashboard-stat"><span>Motifs appris</span><strong>{{ ml_trainable_classes }}</strong><small>classes disposant de données suffisantes</small></div>
+        <div class="ml-dashboard-stat"><span>Suggestions ML produites</span><strong>{{ ml_prediction_count }}</strong><small>depuis les campagnes analysées</small></div>
+        <div class="ml-dashboard-stat"><span>Dernier entraînement</span><strong>{{ ml_model.entraine_le|date:'d/m/Y' }}</strong><small>{{ ml_model.entraine_le|date:'H:i' }}</small></div>
+      </div>
+
+      <div class="bam-section-note mt-3">
+        <i class="bi bi-lightbulb-fill"></i>
+        <div><strong>Comment lire les propositions :</strong> un pourcentage est affiché uniquement lorsqu’une suggestion provient réellement du modèle ML. Une règle métier ou un cas appris est présenté sans pourcentage.</div>
+      </div>
+    {% else %}
+      <div class="ml-dashboard-empty">
+        <div class="ml-dashboard-orb"><i class="bi bi-diagram-3"></i></div>
+        <div>
+          <h3>Le modèle se construit avec vos validations</h3>
+          <p>{{ ml_examples }} décision{{ ml_examples|pluralize }} éligible{{ ml_examples|pluralize }} enregistrée{{ ml_examples|pluralize }} sur un minimum de {{ ml_minimum_examples }}. Il faut également au moins deux motifs suffisamment représentés.</p>
+        </div>
+      </div>
+      <div class="ml-dashboard-grid">
+        <div class="ml-dashboard-stat"><span>Exemples disponibles</span><strong>{{ ml_examples }} / {{ ml_minimum_examples }}</strong><small>aucun pourcentage artificiel</small></div>
+        <div class="ml-dashboard-stat"><span>Motifs observés</span><strong>{{ ml_motif_classes }}</strong><small>{{ ml_trainable_classes }} suffisamment représenté{{ ml_trainable_classes|pluralize }}</small></div>
+        <div class="ml-dashboard-stat"><span>Modèles entraînés</span><strong>{{ ml_model_count }}</strong><small>historique des versions</small></div>
+        <div class="ml-dashboard-stat"><span>Décision</span><strong>Humaine</strong><small>toujours obligatoire</small></div>
+      </div>
+      <div class="bam-section-note mt-3">
+        <i class="bi bi-shield-check"></i>
+        <div><strong>En attendant le ML :</strong> BAM Supervise peut proposer des motifs issus des règles métier ou de dossiers similaires validés, mais ces propositions sont affichées <strong>sans pourcentage</strong>.</div>
+      </div>
+    {% endif %}
+  </div>
+</section>
