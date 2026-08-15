@@ -3,12 +3,12 @@ from __future__ import annotations
 import hashlib
 import logging
 from collections import Counter
-from datetime import datetime
 from pathlib import Path
 
 import joblib
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
@@ -48,10 +48,12 @@ def training_status():
     )
     counts = Counter(example.motif_label.code_motif for example in examples)
     trainable_classes = [code for code, count in counts.items() if count >= MIN_EXAMPLES_PER_CLASS]
+    trainable_examples = sum(counts[code] for code in trainable_classes)
     active_model = ModeleML.objects.filter(actif=True).order_by('-entraine_le').first()
-    ready = len(examples) >= MIN_TRAINING_EXAMPLES and len(trainable_classes) >= 2
+    ready = trainable_examples >= MIN_TRAINING_EXAMPLES and len(trainable_classes) >= 2
     return {
         'eligible_examples': len(examples),
+        'trainable_examples': trainable_examples,
         'motif_classes': len(counts),
         'trainable_classes': len(trainable_classes),
         'minimum_examples': MIN_TRAINING_EXAMPLES,
@@ -66,7 +68,7 @@ def _should_retrain(status):
     model = status['active_model']
     if model is None:
         return True
-    return status['eligible_examples'] >= model.nb_exemples + RETRAIN_INCREMENT
+    return status['trainable_examples'] >= model.nb_exemples + RETRAIN_INCREMENT
 
 
 def maybe_retrain_model():
@@ -128,7 +130,8 @@ def maybe_retrain_model():
 
     model_dir = Path(settings.MEDIA_ROOT) / 'ml_models'
     model_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.utcnow().strftime('%Y%m%d%H%M%S%f')
+    trained_at = timezone.now()
+    timestamp = trained_at.strftime('%Y%m%d%H%M%S%f')
     version = f'motif-{timestamp}'
     model_path = model_dir / f'{version}.joblib'
     joblib.dump(pipeline, model_path)
@@ -140,7 +143,7 @@ def maybe_retrain_model():
             nom_modele='Suggestion de motif BAM Supervise',
             algorithme='Régression logistique + DictVectorizer',
             version_modele=version,
-            entraine_le=datetime.now().astimezone(),
+            entraine_le=trained_at,
             nb_exemples=len(examples),
             metriques=metrics,
             chemin_fichier=str(model_path),
