@@ -49,7 +49,12 @@ def _source_attribute_value(anomaly, detail):
 
 @register.simple_tag
 def display_anomaly_value(anomaly, detail):
-    """Display the comparison value, including decrypted sensitive values for N3 DIFFERENT."""
-    if anomaly.type_ecart != 'DIFFERENT':
-        return detail.valeur_brute or '—'
-    return _source_attribute_value(anomaly, detail)
+    """Display the real comparison value for an attribute anomaly.
+
+    Sensitive attributes such as telephone numbers are decrypted only in memory for
+    the authenticated supervisor page. This applies to ABSENT as well as DIFFERENT
+    anomalies so the supervisor can see the values actually present in each system.
+    """
+    if anomaly.niveau == 'ATTRIBUT':
+        return _source_attribute_value(anomaly, detail)
+    return detail.valeur_brute or '—'
