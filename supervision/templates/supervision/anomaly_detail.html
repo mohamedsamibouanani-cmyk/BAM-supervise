@@ -68,7 +68,7 @@
 
   <div class="col-xl-5">
     <section class="panel h-100">
-      <div class="panel-header"><div><span class="workflow-step">2</span><h2 class="panel-title d-inline ms-2">Diagnostic proposé</h2><p class="panel-subtitle mt-2">Analyse des champs dans tous les systèmes disponibles</p></div></div>
+      <div class="panel-header"><div><span class="workflow-step">2</span><h2 class="panel-title d-inline ms-2">Diagnostic proposé</h2><p class="panel-subtitle mt-2">Les règles décrivent les constats observés ; seuls les résultats ML affichent une probabilité.</p></div></div>
       <div class="panel-body">
         {% for p in anomaly.predictions.all %}
           <div class="prediction-card">
@@ -77,7 +77,13 @@
               <div class="flex-grow-1 min-width-0">
                 <strong class="d-block" style="font-size:12px">{{ p.motif.libelle }}</strong>
                 <div class="text-secondary mt-1" style="font-size:10px">
-                  {{ p.get_source_prediction_display }}
+                  {% if p.source_prediction == 'ML' %}
+                    Machine Learning
+                  {% elif p.source_prediction == 'APPRENTISSAGE' %}
+                    Cas déjà validé
+                  {% else %}
+                    Constat métier
+                  {% endif %}
                   {% if p.explication.systemes_a_corriger %}
                     · correction proposée dans
                     {% for code in p.explication.systemes_a_corriger %}<span class="system-badge">{{ code }}</span>{% if not forloop.last %} {% endif %}{% endfor %}
@@ -86,16 +92,21 @@
                   {% endif %}
                 </div>
               </div>
-              <span class="confidence">{% widthratio p.score_confiance 1 100 %}%</span>
+              {% if p.source_prediction == 'ML' %}
+                <span class="confidence" title="Probabilité calculée par le modèle ML">{% widthratio p.score_confiance 1 100 %}%</span>
+              {% endif %}
             </div>
+            {% if p.explication.message %}<p class="small text-secondary mt-3 mb-0">{{ p.explication.message }}</p>{% endif %}
             {% if p.explication.indices %}
               <div class="diagnostic-evidence mt-3">
                 {% for indice in p.explication.indices %}
                   <div><span class="system-badge">{{ indice.systeme }}</span><strong>{{ indice.champ }}</strong><small>{{ indice.constat }}</small></div>
                 {% endfor %}
               </div>
-            {% elif p.explication.message %}<p class="small text-secondary mt-3 mb-0">{{ p.explication.message }}</p>{% endif %}
-            <div class="progress-thin mt-3"><span style="width:{% widthratio p.score_confiance 1 100 %}%"></span></div>
+            {% endif %}
+            {% if p.source_prediction == 'ML' %}
+              <div class="progress-thin mt-3" title="Probabilité calculée par le modèle ML"><span style="width:{% widthratio p.score_confiance 1 100 %}%"></span></div>
+            {% endif %}
           </div>
         {% empty %}
           <div class="empty-state py-4"><div class="empty-icon"><i class="bi bi-question-circle"></i></div><h3>Motif non identifié</h3><p>Aucun indice fiable. Le superviseur peut saisir le motif ; il sera mémorisé pour les prochains dossiers similaires.</p></div>
