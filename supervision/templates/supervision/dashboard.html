@@ -1,8 +1,9 @@
 {% extends 'supervision/base.html' %}
-{% load static %}
+{% load static ml_dashboard %}
 {% block title %}Tableau de bord · BAM Supervise{% endblock %}
-{% block head %}<script src="{% static 'vendor/chart/chart.umd.min.js' %}"></script>{% endblock %}
+{% block head %}<script src="{% static 'vendor/chart/chart.umd.min.js' %}"></script><link rel="stylesheet" href="{% static 'supervision/ml-dashboard.css' %}">{% endblock %}
 {% block content %}
+{% ml_dashboard_state as ml %}
 <div class="page-header dashboard-heading">
   <div>
     <div class="page-eyebrow"><i class="bi bi-grid-1x2-fill"></i> Tableau de bord</div>
@@ -114,6 +115,63 @@
     </div>
   </section>
 </div>
+
+<section class="panel ml-intelligence-panel mb-3">
+  <div class="panel-header">
+    <div>
+      <h2 class="panel-title"><i class="bi bi-cpu me-2"></i>Intelligence & apprentissage</h2>
+      <p class="panel-subtitle">Le modèle apprend uniquement à partir des décisions validées par le superviseur et reste une aide à la décision.</p>
+    </div>
+    <span class="ml-status-pill {% if ml.status == 'ACTIF' %}is-active{% elif ml.status == 'PRET' %}is-ready{% else %}is-learning{% endif %}">
+      <i class="bi {% if ml.status == 'ACTIF' %}bi-check-circle-fill{% elif ml.status == 'PRET' %}bi-lightning-charge-fill{% else %}bi-hourglass-split{% endif %}"></i>
+      {{ ml.status_label }}
+    </span>
+  </div>
+  <div class="panel-body">
+    <div class="ml-overview">
+      <article class="ml-main-card">
+        <span class="ml-main-icon"><i class="bi bi-stars"></i></span>
+        <div>
+          <h3>{% if ml.active_model %}BAM Supervise apprend de vos validations{% else %}BAM Supervise prépare son premier modèle{% endif %}</h3>
+          <p>{{ ml.status_hint }}</p>
+          <div class="ml-flow">
+            <span><i class="bi bi-check2-square"></i> Validation humaine</span><i class="bi bi-arrow-right"></i>
+            <span><i class="bi bi-database-check"></i> Exemple appris</span><i class="bi bi-arrow-right"></i>
+            <span><i class="bi bi-cpu"></i> Réentraînement</span><i class="bi bi-arrow-right"></i>
+            <span><i class="bi bi-percent"></i> Suggestions futures</span>
+          </div>
+        </div>
+      </article>
+      <article class="ml-metric-card">
+        <small>Exemples validés</small>
+        <strong>{{ ml.eligible_examples }}</strong>
+        <span>Décisions exploitables pour l’apprentissage</span>
+      </article>
+      <article class="ml-metric-card">
+        <small>Motifs appris</small>
+        <strong>{% if ml.class_count %}{{ ml.class_count }}{% else %}—{% endif %}</strong>
+        <span>Classes reconnues par le modèle actif</span>
+      </article>
+      <article class="ml-metric-card">
+        <small>Score d’apprentissage</small>
+        <strong>{% if ml.accuracy_percent != None %}{{ ml.accuracy_percent }} %{% else %}—{% endif %}</strong>
+        <span>Indicateur interne du prototype, non décisionnel</span>
+      </article>
+    </div>
+    <div class="ml-learning-line">
+      <div>
+        {% if ml.active_model %}
+          <strong>Modèle actif :</strong> <span class="ml-model-version">{{ ml.active_model.version_modele }}</span> · entraîné le {{ ml.active_model.entraine_le|date:'d/m/Y à H:i' }} sur {{ ml.active_model.nb_exemples }} exemple{{ ml.active_model.nb_exemples|pluralize }}.
+        {% else %}
+          <strong>Premier entraînement :</strong> minimum {{ ml.minimum_examples }} exemples validés et au moins deux motifs différents.
+        {% endif %}
+      </div>
+      <div>
+        {% if ml.pending_examples %}<strong>{{ ml.pending_examples }}</strong> nouvelle{{ ml.pending_examples|pluralize }} décision{{ ml.pending_examples|pluralize }} en attente du prochain apprentissage.{% else %}Aucune nouvelle décision en attente d’apprentissage.{% endif %}
+      </div>
+    </div>
+  </div>
+</section>
 
 <section class="panel dashboard-campaigns">
   <div class="panel-header">
