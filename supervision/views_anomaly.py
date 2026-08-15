@@ -120,6 +120,11 @@ def anomaly_validate(request, pk):
             decision = form.cleaned_data['decision']
             comment = form.cleaned_data['commentaire']
             validations = []
+            is_attribute_difference = (
+                anomaly.niveau == Anomalie.Niveau.ATTRIBUT
+                and anomaly.type_ecart == Anomalie.TypeEcart.DIFFERENT
+                and bool(form.cleaned_data.get('systemes_a_corriger_finaux'))
+            )
 
             if decision == ValidationMotif.Decision.ACCEPTE:
                 selected_predictions = form.cleaned_data.get('predictions_selectionnees') or []
@@ -178,19 +183,25 @@ def anomaly_validate(request, pk):
                         )
                     final_decision = ValidationMotif.Decision.MODIFIE
 
-                validation = ValidationMotif.objects.create(
-                    anomalie=anomaly,
-                    prediction_retenue=None,
-                    motif_final=motif_final,
-                    systeme_a_corriger_final=form.cleaned_data['systeme_a_corriger_final'],
-                    superviseur=request.user,
-                    decision=final_decision,
-                    commentaire=comment,
-                    version_validation=next_version,
-                    est_finale=True,
+                target_systems = (
+                    form.cleaned_data.get('systemes_a_corriger_finaux')
+                    if is_attribute_difference
+                    else [form.cleaned_data['systeme_a_corriger_final']]
                 )
-                _create_learning_example(validation)
-                validations.append(validation)
+                for offset, target_system in enumerate(target_systems):
+                    validation = ValidationMotif.objects.create(
+                        anomalie=anomaly,
+                        prediction_retenue=None,
+                        motif_final=motif_final,
+                        systeme_a_corriger_final=target_system,
+                        superviseur=request.user,
+                        decision=final_decision,
+                        commentaire=comment,
+                        version_validation=next_version + offset,
+                        est_finale=True,
+                    )
+                    _create_learning_example(validation)
+                    validations.append(validation)
 
             if not validations:
                 form.add_error(
@@ -218,6 +229,20 @@ def anomaly_validate(request, pk):
                         'systemes_concernes': [
                             v.systeme_a_corriger_final.code_systeme for v in validations
                         ],
+                    }
+                elif is_attribute_difference:
+                    targets = [
+                        v.systeme_a_corriger_final.code_systeme for v in validations
+                    ]
+                    history_comment = (
+                        'Constat de valeurs différentes validé. '
+                        f'Système(s) à corriger : {", ".join(targets)}.'
+                    )
+                    audit_values = {
+                        'niveau': 'ATTRIBUT',
+                        'constat': 'ATTRIBUT_DIFFERENT',
+                        'attribut': anomaly.attribut.code_attribut if anomaly.attribut_id else '',
+                        'systemes_a_corriger': targets,
                     }
                 else:
                     labels = ', '.join(v.motif_final.libelle for v in validations)
@@ -250,6 +275,15 @@ def anomaly_validate(request, pk):
                         messages.success(
                             request,
                             'Constat validé. Le système concerné a été notifié.',
+                        )
+                    elif is_attribute_difference:
+                        targets = ', '.join(
+                            v.systeme_a_corriger_final.code_systeme for v in validations
+                        )
+                        messages.success(
+                            request,
+                            f'Valeur différente validée. Système(s) à corriger : {targets}. '
+                            'Les équipes correspondantes ont été notifiées.',
                         )
                     else:
                         messages.success(
