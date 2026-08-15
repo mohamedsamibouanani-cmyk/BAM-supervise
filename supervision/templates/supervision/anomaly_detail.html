@@ -6,159 +6,163 @@
 <link rel="stylesheet" href="{% static 'supervision/anomaly-multicause.css' %}">
 {% endblock %}
 {% block content %}
-<div class="anomaly-detail-shell">
-  <header class="anomaly-detail-head">
-    <div>
-      <a class="anomaly-detail-back" href="{% url 'anomaly_list' %}"><i class="bi bi-arrow-left"></i> Registre des anomalies</a>
-      <div class="anomaly-detail-title-row">
-        <h1 class="anomaly-detail-title">{{ anomaly.code_envoi }}</h1>
-        <span class="level-badge level-{{ anomaly.niveau }}">{{ anomaly.get_niveau_display }}</span>
-        <span class="status-badge status-{{ anomaly.statut }}">{{ anomaly.get_statut_display }}</span>
-      </div>
-      <p class="anomaly-detail-subtitle">
-        {% if anomaly.niveau == 'ENVOI' %}Envoi
-        {% elif anomaly.niveau == 'SERVICE' %}Service <strong>{{ anomaly.code_service }}</strong>
-        {% else %}Attribut <strong>{{ anomaly.attribut.code_attribut }}</strong>{% endif %}
-        {% if anomaly.type_ecart == 'DIFFERENT' %} · valeurs différentes entre les systèmes
-        {% elif anomaly.systeme_ecart %} · absent dans <strong>{{ anomaly.systeme_ecart.code_systeme }}</strong>{% endif %}
-      </p>
-    </div>
-  </header>
-
-  <div class="anomaly-casebar anomaly-casebar-compact">
-    <div class="anomaly-casebar-main">
-      <strong>Dossier #{{ anomaly.pk }}</strong>
-      {% if anomaly.systeme_ecart %}<span class="system-badge">Observé : {{ anomaly.systeme_ecart.code_systeme }}</span>{% endif %}
-    </div>
-    <div class="anomaly-casebar-meta">
-      <span><i class="bi bi-clock"></i> {{ anomaly.detectee_le|date:'d/m/Y H:i' }}</span>
-    </div>
+<div class="page-header">
+  <div>
+    <div class="page-eyebrow"><a href="{% url 'anomaly_list' %}" class="text-decoration-none"><i class="bi bi-arrow-left"></i> Registre des anomalies</a></div>
+    <h1 class="page-title">Dossier #{{ anomaly.pk }} · {{ anomaly.code_envoi }}</h1>
+    <p class="page-subtitle">Le dossier sépare le constat de synchronisation, l’analyse des données disponibles, les causes proposées et la décision finale du superviseur.</p>
   </div>
-
-  <div class="anomaly-workspace anomaly-workspace-compact">
-    <div class="anomaly-main-column">
-      <section class="anomaly-card">
-        <div class="anomaly-card-head compact-card-head"><div><h2>État de synchronisation</h2></div></div>
-        <div class="anomaly-card-body compact-card-body">
-          {% if anomaly.details.all %}
-          <div class="table-responsive">
-            <table class="system-state-table compact-state-table">
-              <thead><tr><th>Système</th><th>État</th>{% if anomaly.type_ecart == 'DIFFERENT' %}<th>Valeur</th>{% endif %}</tr></thead>
-              <tbody>
-                {% for d in anomaly.details.all %}
-                <tr>
-                  <td><span class="system-badge">{{ d.systeme.code_systeme }}</span></td>
-                  <td>
-                    {% if anomaly.type_ecart == 'DIFFERENT' %}
-                      {% if d.est_ecart %}<span class="system-state-result is-diff"><i class="bi bi-exclamation-circle-fill"></i> Différent</span>
-                      {% else %}<span class="system-state-result is-ok"><i class="bi bi-check-circle-fill"></i> Conforme</span>{% endif %}
-                    {% elif d.objet_present %}
-                      <span class="system-state-result is-ok"><i class="bi bi-check-circle-fill"></i> Présent</span>
-                    {% else %}
-                      <span class="system-state-result is-gap"><i class="bi bi-x-circle-fill"></i> Absent</span>
-                    {% endif %}
-                  </td>
-                  {% if anomaly.type_ecart == 'DIFFERENT' %}<td class="system-state-note"><strong>{% display_anomaly_value anomaly d %}</strong></td>{% endif %}
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-          {% else %}<div class="anomaly-empty compact-empty"><strong>Aucune donnée de comparaison disponible.</strong></div>{% endif %}
-        </div>
-      </section>
-
-      <section class="anomaly-card">
-        <div class="anomaly-card-head compact-card-head">
-          <div><h2>{% if anomaly.niveau == 'SERVICE' %}Désynchronisation détectée{% elif anomaly.niveau == 'ATTRIBUT' %}Diagnostic de synchronisation{% else %}Causes détectées{% endif %}</h2></div>
-          {% if anomaly.niveau != 'SERVICE' and anomaly.predictions.count %}<span class="decision-count">{{ anomaly.predictions.count }}</span>{% endif %}
-        </div>
-        <div class="anomaly-card-body compact-card-body">
-          {% if anomaly.niveau == 'SERVICE' %}
-            <div class="cause-list compact-cause-list">
-              <article class="cause-row compact-cause-row">
-                <div class="cause-copy">
-                  <div class="cause-topline compact-cause-topline">
-                    <strong>Service {{ anomaly.code_service }} non synchronisé</strong>
-                  </div>
-                  {% if anomaly.systeme_ecart %}<small>Absent dans {{ anomaly.systeme_ecart.code_systeme }}</small>{% endif %}
-                </div>
-              </article>
-            </div>
-          {% else %}
-            <div class="cause-list compact-cause-list">
-              {% for p in anomaly.predictions.all %}
-                <article class="cause-row compact-cause-row">
-                  <div class="cause-copy">
-                    <div class="cause-topline compact-cause-topline">
-                      <strong>{% if anomaly.niveau == 'ENVOI' and p.explication.message %}{{ p.explication.message }}{% else %}{{ p.motif.libelle }}{% endif %}</strong>
-                    </div>
-                    {% if p.explication.role_diagnostic == 'MOTIF_NON_IDENTIFIABLE' and p.explication.systeme_source_a_confirmer %}
-                      <small>Le système source doit être confirmé par le superviseur avant toute notification.</small>
-                    {% endif %}
-                  </div>
-                  {% if p.explication.role_diagnostic != 'CONSTAT_ATTRIBUT' and p.explication.role_diagnostic != 'MOTIF_NON_IDENTIFIABLE' %}
-                    <div class="cause-side compact-cause-side"><span class="cause-score">{% widthratio p.score_confiance 1 100 %}%</span></div>
-                  {% endif %}
-                </article>
-              {% empty %}<div class="anomaly-empty compact-empty"><strong>Diagnostic non identifié.</strong></div>{% endfor %}
-            </div>
-          {% endif %}
-        </div>
-      </section>
-    </div>
-
-    <aside class="anomaly-side-column">
-      <section class="anomaly-card decision-card compact-decision-card">
-        <div class="anomaly-card-head compact-card-head"><div><h2>Décision</h2></div></div>
-        <div class="decision-focus compact-decision-focus">
-          {% if final_validations %}
-            <span class="decision-focus-label">{% if anomaly.niveau == 'SERVICE' %}Constat validé{% elif anomaly.niveau == 'ATTRIBUT' %}Diagnostic validé{% else %}Causes validées{% endif %}</span>
-            <div class="decision-corrections compact-validations">
-              {% for validation in final_validations %}
-                <div class="decision-correction compact-validation-row">
-                  <strong>
-                    {% if anomaly.niveau == 'SERVICE' %}Service {{ anomaly.code_service }} non synchronisé
-                    {% elif anomaly.niveau == 'ENVOI' and validation.prediction_retenue.explication.message %}{{ validation.prediction_retenue.explication.message }}
-                    {% else %}{{ validation.motif_final.libelle }}{% endif %}
-                  </strong>
-                  <div class="decision-correction-meta">
-                    {% if validation.decision == 'ACCEPTE' and validation.prediction_retenue.explication.systemes_a_corriger %}
-                      {% for code in validation.prediction_retenue.explication.systemes_a_corriger %}<span class="system-badge">{{ code }}</span>{% endfor %}
-                    {% elif validation.systeme_a_corriger_final %}<span class="system-badge">{{ validation.systeme_a_corriger_final.code_systeme }}</span>{% endif %}
-                  </div>
-                </div>
-              {% endfor %}
-            </div>
-            {% if anomaly.statut != 'RESOLUE' %}<a class="btn btn-primary decision-primary-action" href="{% url 'anomaly_validate' anomaly.pk %}"><i class="bi bi-pencil-square"></i> Réviser</a>{% endif %}
-          {% else %}
-            <span class="decision-focus-label">Action requise</span>
-            <h3>{% if anomaly.niveau == 'SERVICE' %}Confirmer le constat{% elif anomaly.niveau == 'ATTRIBUT' %}Examiner le diagnostic{% else %}Examiner les causes{% endif %}</h3>
-            <a class="btn btn-primary decision-primary-action" href="{% url 'anomaly_validate' anomaly.pk %}"><i class="bi bi-check2-square"></i> Examiner</a>
-          {% endif %}
-        </div>
-      </section>
-    </aside>
+  <div class="page-actions">
+    {% if anomaly.statut != 'RESOLUE' %}<a class="btn btn-primary" href="{% url 'anomaly_validate' anomaly.pk %}"><i class="bi bi-check2-square me-1"></i>{% if final_validations %}Réviser la décision{% else %}Examiner et valider{% endif %}</a>{% endif %}
   </div>
-
-  <details class="anomaly-card compact-history">
-    <summary class="compact-history-summary"><span><i class="bi bi-clock-history"></i> Historique du dossier</span><span class="compact-history-action">Afficher</span></summary>
-    <div class="anomaly-card-body compact-history-body">
-      <div class="compact-timeline">
-        {% for h in anomaly.historique.all %}
-          <div class="compact-timeline-item">
-            <span class="compact-timeline-dot"></span>
-            <div class="compact-timeline-copy"><strong>{{ h.nouveau_statut }} · {{ h.source_evenement }}</strong>{% if h.commentaire %}<small>{{ h.commentaire }}</small>{% endif %}</div>
-            <time class="compact-timeline-time">{{ h.change_le|date:'d/m/Y H:i' }}</time>
-          </div>
-        {% empty %}
-          <div class="compact-timeline-item"><span class="compact-timeline-dot"></span><div class="compact-timeline-copy"><strong>Anomalie créée</strong></div><time class="compact-timeline-time">{{ anomaly.detectee_le|date:'d/m/Y H:i' }}</time></div>
-        {% endfor %}
-        {% for v in anomaly.verifications.all %}
-          <div class="compact-timeline-item"><span class="compact-timeline-dot"></span><div class="compact-timeline-copy"><strong>Recontrôle · {{ v.get_resultat_display }}</strong></div><time class="compact-timeline-time">{{ v.verifiee_le|date:'d/m/Y H:i' }}</time></div>
-        {% endfor %}
-      </div>
-    </div>
-  </details>
 </div>
+
+<section class="detail-hero mb-3">
+  <div>
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+      <span class="code" style="font-size:18px">{{ anomaly.code_envoi }}</span>
+      <span class="level-badge level-{{ anomaly.niveau }}">{{ anomaly.get_niveau_display }}</span>
+      <span class="status-badge status-{{ anomaly.statut }}">{{ anomaly.get_statut_display }}</span>
+    </div>
+    <div class="detail-meta">
+      <span><i class="bi bi-diagram-3"></i> Écart : <strong>{{ anomaly.get_type_ecart_display }}</strong></span>
+      {% if anomaly.systeme_ecart %}<span><i class="bi bi-hdd-stack"></i> Observé dans : <strong>{{ anomaly.systeme_ecart.code_systeme }}</strong></span>{% endif %}
+      {% if anomaly.code_service %}<span><i class="bi bi-box"></i> Service : <strong>{{ anomaly.code_service }}</strong></span>{% endif %}
+      {% if anomaly.attribut %}<span><i class="bi bi-braces"></i> Attribut : <strong>{{ anomaly.attribut.code_attribut }}</strong></span>{% endif %}
+      <span><i class="bi bi-clock"></i> {{ anomaly.detectee_le|date:'d/m/Y H:i:s' }}</span>
+      <span><i class="bi bi-collection"></i> Campagne #{{ anomaly.campagne.pk }}</span>
+    </div>
+  </div>
+</section>
+
+<div class="bam-section-note mb-3">
+  <i class="bi bi-info-circle-fill"></i>
+  <div><strong>Principe métier :</strong> le système où l’écart est observé n’est pas automatiquement le système à corriger. BAM Supervise analyse les systèmes où les données existent, propose une cause, puis le superviseur confirme la décision avant toute notification.</div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-xl-8">
+    <section class="panel h-100">
+      <div class="panel-header">
+        <div><h2 class="panel-title">Preuve de comparaison SMI / SICOM / SIBO</h2><p class="panel-subtitle">Présence, valeur observée, conformité de format et ligne source pour comprendre exactement l’écart.</p></div>
+      </div>
+      <div class="panel-body">
+        <div class="evidence-grid">
+          {% for d in anomaly.details.all %}
+          <article class="evidence-card {% if d.est_ecart %}is-gap{% endif %}">
+            <div class="evidence-system">
+              <span class="system-badge">{{ d.systeme.code_systeme }}</span>
+              {% if d.est_ecart %}<span class="status-badge status-DETECTEE"><i class="bi bi-exclamation-circle"></i> Écart observé</span>{% else %}<span class="status-badge status-RESOLUE"><i class="bi bi-check-circle"></i> Donnée disponible</span>{% endif %}
+            </div>
+            <div class="evidence-label">Présence</div>
+            <div class="evidence-value mb-3"><strong>{{ d.objet_present|yesno:'Présent,Absent' }}</strong></div>
+            {% if anomaly.niveau == 'ATTRIBUT' or anomaly.type_ecart == 'DIFFERENT' %}
+              <div class="evidence-label">Valeur observée</div>
+              <div class="evidence-value code mb-3"><strong>{% display_anomaly_value anomaly d %}</strong></div>
+            {% endif %}
+            {% if d.format_source_conforme != None %}<div class="evidence-label">Format source</div><div class="evidence-value mb-3">{% if d.format_source_conforme %}<span class="status-badge status-RESOLUE">Conforme</span>{% else %}<span class="status-badge status-DETECTEE">Non conforme</span>{% endif %}</div>{% endif %}
+            {% if d.ligne_source %}<div class="evidence-label">Ligne source</div><div class="evidence-value">Excel #{{ d.ligne_source }}</div>{% endif %}
+            {% if d.observation %}<div class="mt-3 text-secondary" style="font-size:11px">{{ d.observation }}</div>{% endif %}
+          </article>
+          {% empty %}<div class="empty-state"><p>Aucune preuve enregistrée pour ce dossier.</p></div>{% endfor %}
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="col-xl-4">
+    <section class="panel h-100">
+      <div class="panel-header"><div><h2 class="panel-title">Diagnostic proposé</h2><p class="panel-subtitle">Règles métier, cas appris ou modèle ML. La proposition reste à valider humainement.</p></div></div>
+      <div class="panel-body">
+        {% if anomaly.niveau == 'SERVICE' %}
+          <div class="prediction-card">
+            <strong class="d-block">Service {{ anomaly.code_service }} non synchronisé</strong>
+            {% if anomaly.systeme_ecart %}<div class="text-secondary mt-2">Absent dans <span class="system-badge">{{ anomaly.systeme_ecart.code_systeme }}</span></div>{% endif %}
+            <div class="text-secondary mt-2" style="font-size:11px">Au niveau SERVICE, BAM Supervise constate la désynchronisation sans inventer un motif métier.</div>
+          </div>
+        {% else %}
+          {% for p in anomaly.predictions.all %}
+          <div class="prediction-card">
+            <div class="d-flex align-items-start gap-3">
+              <span class="prediction-rank">{{ p.rang }}</span>
+              <div class="flex-grow-1 min-width-0">
+                <strong class="d-block" style="font-size:12px">{% if anomaly.niveau == 'ENVOI' and p.explication.message %}{{ p.explication.message }}{% else %}{{ p.motif.libelle }}{% endif %}</strong>
+                <div class="text-secondary mt-1" style="font-size:10px">Source : {{ p.get_source_prediction_display }}</div>
+              </div>
+              {% if p.explication.role_diagnostic != 'MOTIF_NON_IDENTIFIABLE' and p.explication.role_diagnostic != 'CONSTAT_ATTRIBUT' and p.explication.role_diagnostic != 'CONSTAT_ATTRIBUT_DIFFERENT' %}<span class="confidence">{% widthratio p.score_confiance 1 100 %}%</span>{% endif %}
+            </div>
+            <div class="mt-3">
+              <div class="evidence-label">Système(s) proposé(s) à corriger</div>
+              {% if p.explication.systemes_a_corriger %}
+                <div class="d-flex flex-wrap gap-1 mt-1">{% for code in p.explication.systemes_a_corriger %}<span class="system-badge">{{ code }}</span>{% endfor %}</div>
+              {% elif p.systeme_a_corriger_predit %}<span class="system-badge">{{ p.systeme_a_corriger_predit.code_systeme }}</span>
+              {% else %}<span class="text-secondary">À confirmer par le superviseur</span>{% endif %}
+            </div>
+            {% if p.explication.attribut_analyse %}<div class="mt-2 text-secondary" style="font-size:10px">Champ analysé : <strong>{{ p.explication.attribut_analyse }}</strong></div>{% endif %}
+          </div>
+          {% empty %}
+            <div class="empty-state py-4"><div class="empty-icon"><i class="bi bi-lightbulb"></i></div><h3>Aucun motif exploitable</h3><p>L’écart est détecté mais aucune cause suffisamment fiable n’a été identifiée.</p></div>
+          {% endfor %}
+        {% endif %}
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-xl-7">
+    <section class="panel h-100">
+      <div class="panel-header"><div><h2 class="panel-title">Décision finale du superviseur</h2><p class="panel-subtitle">La décision humaine est conservée séparément des propositions automatiques.</p></div></div>
+      <div class="panel-body">
+        {% if final_validations %}
+          {% for validation in final_validations %}
+          <div class="prediction-card mb-3">
+            <div class="d-flex justify-content-between align-items-start gap-3">
+              <div>
+                <div class="evidence-label">Décision</div><strong>{{ validation.get_decision_display }}</strong>
+              </div>
+              <span class="system-badge">v{{ validation.version_validation }}</span>
+            </div>
+            <div class="row g-3 mt-1">
+              <div class="col-md-7"><div class="evidence-label">Cause / constat retenu</div><strong>{% if anomaly.niveau == 'SERVICE' %}Service {{ anomaly.code_service }} non synchronisé{% elif anomaly.niveau == 'ENVOI' and validation.prediction_retenue.explication.message %}{{ validation.prediction_retenue.explication.message }}{% else %}{{ validation.motif_final.libelle }}{% endif %}</strong></div>
+              <div class="col-md-5"><div class="evidence-label">Système(s) à corriger</div>{% if validation.decision == 'ACCEPTE' and validation.prediction_retenue.explication.systemes_a_corriger %}<div class="d-flex flex-wrap gap-1">{% for code in validation.prediction_retenue.explication.systemes_a_corriger %}<span class="system-badge">{{ code }}</span>{% endfor %}</div>{% else %}<span class="system-badge">{{ validation.systeme_a_corriger_final.code_systeme }}</span>{% endif %}</div>
+              <div class="col-md-6"><div class="evidence-label">Validé le</div><span>{{ validation.validee_le|date:'d/m/Y H:i:s' }}</span></div>
+              <div class="col-md-6"><div class="evidence-label">Superviseur</div><span>{{ validation.superviseur.nom_complet|default:validation.superviseur.username }}</span></div>
+              {% if validation.commentaire %}<div class="col-12"><div class="evidence-label">Commentaire</div><div class="p-3 rounded-3 bg-light">{{ validation.commentaire }}</div></div>{% endif %}
+            </div>
+          </div>
+          {% endfor %}
+          {% if anomaly.statut != 'RESOLUE' %}<a class="btn btn-outline-primary" href="{% url 'anomaly_validate' anomaly.pk %}"><i class="bi bi-pencil-square me-1"></i> Réviser la décision</a>{% endif %}
+        {% else %}
+          <div class="empty-state py-4"><div class="empty-icon"><i class="bi bi-person-check"></i></div><h3>Validation requise</h3><p>Le superviseur doit confirmer les causes proposées ou les corriger avant le routage des e-mails.</p><a class="btn btn-primary mt-3" href="{% url 'anomaly_validate' anomaly.pk %}">Examiner le diagnostic</a></div>
+        {% endif %}
+      </div>
+    </section>
+  </div>
+
+  <div class="col-xl-5">
+    <section class="panel h-100">
+      <div class="panel-header"><div><h2 class="panel-title">Notifications</h2><p class="panel-subtitle">Une notification distincte peut être créée pour chaque système responsable.</p></div></div>
+      <div class="panel-body">
+        {% for n in notifications %}
+          <div class="prediction-card mb-3">
+            <div class="d-flex justify-content-between align-items-start gap-2"><div><strong>{{ n.groupe.nom_groupe }}</strong><div class="text-secondary mt-1" style="font-size:10px">{{ n.groupe.systeme.code_systeme }} · {{ n.creee_le|date:'d/m/Y H:i:s' }}</div></div>{% if n.statut == 'ENVOYEE' %}<span class="status-badge status-RESOLUE">Envoyée</span>{% elif n.statut == 'ECHEC' %}<span class="status-badge status-DETECTEE">Échec</span>{% else %}<span class="status-badge status-ANALYSEE">À envoyer</span>{% endif %}</div>
+            <div class="mt-2"><span class="evidence-label">Destinataires</span> <strong>{{ n.destinataires.count }}</strong></div>
+            {% if n.erreur %}<div class="text-danger mt-2" style="font-size:11px">{{ n.erreur }}</div>{% endif %}
+          </div>
+        {% empty %}<div class="empty-state py-4"><div class="empty-icon"><i class="bi bi-envelope"></i></div><h3>Aucune notification</h3><p>Les notifications apparaîtront après validation du superviseur.</p></div>{% endfor %}
+      </div>
+    </section>
+  </div>
+</div>
+
+<section class="panel">
+  <div class="panel-header"><div><h2 class="panel-title">Cycle de vie du dossier</h2><p class="panel-subtitle">Détection, analyse, validation, notification et recontrôle sont historisés sans écraser les étapes précédentes.</p></div></div>
+  <div class="panel-body">
+    <div class="timeline">
+      {% for h in anomaly.historique.all %}<div class="timeline-item"><strong>{{ h.nouveau_statut }} · {{ h.source_evenement }}</strong><small>{{ h.change_le|date:'d/m/Y H:i:s' }}{% if h.commentaire %} · {{ h.commentaire }}{% endif %}</small></div>{% empty %}<div class="timeline-item"><strong>Anomalie créée</strong><small>{{ anomaly.detectee_le|date:'d/m/Y H:i:s' }}</small></div>{% endfor %}
+      {% for v in anomaly.verifications.all %}<div class="timeline-item"><strong>Recontrôle : {{ v.get_resultat_display }}</strong><small>Campagne #{{ v.campagne_controle.pk }} · {{ v.verifiee_le|date:'d/m/Y H:i:s' }}</small></div>{% endfor %}
+    </div>
+  </div>
+</section>
 {% endblock %}
