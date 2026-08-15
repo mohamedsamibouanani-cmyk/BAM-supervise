@@ -20,9 +20,10 @@ from supervision.models import ExempleApprentissage, ModeleML
 
 logger = logging.getLogger(__name__)
 
-# Le modèle n'est créé que lorsque l'historique humain devient suffisamment
-# représentatif pour apprendre au moins deux motifs différents.
-MIN_TRAINING_EXAMPLES = 20
+# Pour la démonstration BAM Supervise, le premier modèle peut être entraîné dès
+# 6 décisions humaines éligibles, à condition d'avoir au moins deux motifs
+# différents représentés par au moins deux exemples chacun.
+MIN_TRAINING_EXAMPLES = 6
 MIN_EXAMPLES_PER_CLASS = 2
 RETRAIN_INCREMENT = 5
 
