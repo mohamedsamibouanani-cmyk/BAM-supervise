@@ -25,6 +25,20 @@
     <i class="bi bi-cpu"></i>
     <div><strong>Lecture des propositions :</strong> un pourcentage représente uniquement une probabilité calculée par un modèle de Machine Learning. Les règles métier et les cas similaires validés sont présentés sans pourcentage.</div>
   </div>
+
+  <div class="bam-section-note mb-3" aria-live="polite">
+    <i class="bi {% if ml_state == 'SUGGESTIONS' %}bi-stars{% elif ml_state == 'LEARNING' %}bi-database{% else %}bi-cpu{% endif %}"></i>
+    <div>
+      <strong>
+        {% if ml_state == 'SUGGESTIONS' %}Machine Learning actif
+        {% elif ml_state == 'NO_COMPATIBLE_SUGGESTION' %}Machine Learning : aucune cause compatible
+        {% elif ml_state == 'TRAINING_AVAILABLE' %}Machine Learning : entraînement disponible
+        {% else %}Machine Learning en apprentissage{% endif %}
+      </strong>
+      <div>{{ ml_state_message }}</div>
+      {% if ml_model %}<small>Modèle : {{ ml_model.version_modele }}</small>{% endif %}
+    </div>
+  </div>
   {% endif %}
 
   <section class="validation-card" aria-labelledby="validation-diagnostic-title">
@@ -42,7 +56,7 @@
               {% if anomaly.niveau == 'SERVICE' %}
                 <p>Confirmez simplement le système où le service manque.</p>
               {% elif anomaly.niveau == 'ATTRIBUT' %}
-                <p>Confirmez le constat de synchronisation ou une cause réellement démontrée.</p>
+                <p>Le constat vient du moteur de comparaison. Une proposition marquée « ML » est une cause apprise, jamais le constat lui-même.</p>
               {% else %}
                 <p>Gardez uniquement les causes que vous confirmez. Aucun mail n’est envoyé avant votre validation.</p>
               {% endif %}
@@ -71,6 +85,13 @@
               <div class="validation-cause-options">{{ form.predictions }}</div>
             </fieldset>
             {% if form.predictions.errors %}<div class="text-danger small mt-2" role="alert">{{ form.predictions.errors }}</div>{% endif %}
+
+            {% if ml_predictions %}
+            <div class="bam-section-note mt-3">
+              <i class="bi bi-stars"></i>
+              <div><strong>{{ ml_predictions|length }} proposition(s) ML présente(s)</strong><br><small>Seules ces propositions portent une probabilité. Elles restent soumises à la validation du superviseur.</small></div>
+            </div>
+            {% endif %}
 
             <div class="validation-selection-bar" id="selectionSummary" hidden aria-live="polite" aria-atomic="true">
               <strong id="selectedCountText">Sélection en cours</strong>
