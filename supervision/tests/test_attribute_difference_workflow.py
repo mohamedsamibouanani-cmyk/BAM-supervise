@@ -111,7 +111,7 @@ class AttributeDifferenceWorkflowTests(TestCase):
             'systeme_a_corriger_final': '',
         })
         self.assertFalse(form.is_valid())
-        self.assertIn('Choisissez explicitement le système à corriger', str(form.errors))
+        self.assertIn('Choisissez au moins un système à corriger', str(form.errors))
 
     def test_supervisor_selected_target_receives_difference_email(self):
         campaign = self._campaign()
