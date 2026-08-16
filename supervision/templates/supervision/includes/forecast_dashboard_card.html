@@ -84,8 +84,28 @@
       </div>
 
       <details class="forecast-technical-details">
-        <summary><i class="bi bi-cpu"></i> Voir le détail des modèles</summary>
+        <summary><i class="bi bi-cpu"></i> Voir le détail des modèles et leur évaluation</summary>
         <div class="forecast-technical-grid">
+          <div>
+            <span>Random Forest · MAE</span>
+            <strong>{% if forecast.rf_mae_total is not None %}{{ forecast.rf_mae_total }} anomalie(s){% else %}Non mesurable{% endif %}</strong>
+            <small>Erreur absolue moyenne sur le nombre total d’anomalies, calculée en validation chronologique.</small>
+          </div>
+          <div>
+            <span>Random Forest · RMSE</span>
+            <strong>{% if forecast.rf_rmse_total is not None %}{{ forecast.rf_rmse_total }}{% else %}Non mesurable{% endif %}</strong>
+            <small>Pénalise davantage les erreurs importantes. {{ forecast.rf_evaluation_count }} campagne(s) réellement évaluée(s).</small>
+          </div>
+          <div>
+            <span>Régression logistique · Accuracy</span>
+            <strong>{% if forecast.classification_accuracy is not None %}{{ forecast.classification_accuracy }} %{% else %}Non mesurable{% endif %}</strong>
+            <small>Part des types dominants correctement prédits sur des campagnes jamais vues à l’entraînement.</small>
+          </div>
+          <div>
+            <span>Régression logistique · F1 macro</span>
+            <strong>{% if forecast.classification_f1_macro is not None %}{{ forecast.classification_f1_macro }} %{% else %}Non mesurable{% endif %}</strong>
+            <small>Équilibre la performance entre les différents types dominants. {{ forecast.classification_evaluation_count }} campagne(s) évaluée(s).</small>
+          </div>
           <div>
             <span>Modèle volume</span>
             <strong>Random Forest Regressor</strong>
@@ -102,6 +122,21 @@
             <small>{{ forecast.training_pairs }} transition(s) campagne t → t+1 utilisée(s).</small>
           </div>
         </div>
+        {% if forecast.rf_mae_by_type %}
+        <div class="forecast-breakdown mt-3">
+          <div class="forecast-section-head">
+            <div><span class="forecast-label">Évaluation détaillée</span><strong>MAE Random Forest par type</strong></div>
+          </div>
+          <div class="forecast-distribution-list">
+            {% for row in forecast.rf_mae_by_type %}
+              <div class="forecast-distribution-row">
+                <div class="forecast-distribution-copy"><span>{{ row.label }}</span><strong>{{ row.mae }}</strong></div>
+                <small>erreur moyenne</small>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
       </details>
     {% else %}
       <div class="forecast-empty-state">
