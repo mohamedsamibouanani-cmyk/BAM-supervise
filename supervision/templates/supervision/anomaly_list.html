@@ -59,7 +59,15 @@
       <thead><tr><th scope="col">Envoi</th><th scope="col">Anomalie</th><th scope="col">Observée dans</th><th scope="col">Statut</th><th scope="col">Détection</th><th scope="col"><span class="visually-hidden">Action</span></th></tr></thead>
       <tbody id="anomalyRegisterBody">
       {% for a in anomalies %}
-        <tr class="anomaly-row {% if a.statut == 'ANALYSEE' %}needs-action{% elif a.statut == 'VALIDEE' or a.statut == 'NOTIFIEE' %}is-follow-up{% elif a.statut == 'PERSISTANTE' %}is-persistent{% elif a.statut == 'RESOLUE' %}is-resolved{% elif a.statut == 'DETECTEE' %}is-technical{% endif %}" data-business-key="{{ a.empreinte_anomalie }}" data-status="{{ a.statut }}" data-detected="{{ a.detectee_le|date:'c' }}">
+        <tr class="anomaly-row {% if a.statut == 'ANALYSEE' %}needs-action{% elif a.statut == 'VALIDEE' or a.statut == 'NOTIFIEE' %}is-follow-up{% elif a.statut == 'PERSISTANTE' %}is-persistent{% elif a.statut == 'RESOLUE' %}is-resolved{% elif a.statut == 'DETECTEE' %}is-technical{% endif %}"
+            data-code-envoi="{{ a.code_envoi }}"
+            data-niveau="{{ a.niveau }}"
+            data-type-ecart="{{ a.type_ecart }}"
+            data-code-service="{{ a.code_service|default:'' }}"
+            data-attribut="{% if a.attribut %}{{ a.attribut.code_attribut }}{% endif %}"
+            data-systeme-ecart="{% if a.systeme_ecart %}{{ a.systeme_ecart.code_systeme }}{% endif %}"
+            data-status="{{ a.statut }}"
+            data-detected="{{ a.detectee_le|date:'c' }}">
           <td data-label="Envoi"><a class="anomaly-code" href="{% url 'anomaly_detail' a.pk %}">{{ a.code_envoi }}</a><small class="anomaly-record-id">Dossier #{{ a.pk }} <span class="occurrence-badge" hidden></span></small></td>
           <td data-label="Anomalie"><div class="anomaly-gap"><span class="level-badge level-{{ a.niveau }}">{{ a.get_niveau_display }}</span><strong>{{ a.get_type_ecart_display }}</strong></div><small>{% if a.niveau == 'SERVICE' %}Service {{ a.code_service|default:'non renseigné' }}{% elif a.niveau == 'ATTRIBUT' %}{{ a.attribut.code_attribut|default:'Attribut non renseigné' }}{% else %}Envoi complet{% endif %}</small></td>
           <td data-label="Observée dans">{% if a.systeme_ecart %}<span class="system-badge">{{ a.systeme_ecart.code_systeme }}</span>{% else %}<span class="anomaly-muted">Plusieurs systèmes</span>{% endif %}</td>
@@ -79,15 +87,22 @@
 {% block scripts %}
 <script>
 (function () {
-  const rows = Array.from(document.querySelectorAll('#anomalyRegisterBody tr[data-business-key]'));
+  const rows = Array.from(document.querySelectorAll('#anomalyRegisterBody tr[data-code-envoi]'));
   if (!rows.length) return;
   const groups = new Map();
   rows.forEach(row => {
-    const key = row.dataset.businessKey;
+    const key = [
+      row.dataset.codeEnvoi,
+      row.dataset.niveau,
+      row.dataset.typeEcart,
+      row.dataset.codeService,
+      row.dataset.attribut,
+      row.dataset.systemeEcart,
+    ].join('|');
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(row);
   });
-  const statusPriority = {PERSISTANTE: 60, NOTIFIEE: 50, VALIDEE: 40, RESOLUE: 30, ANALYSEE: 20, DETECTEE: 10};
+  const statusPriority = {PERSISTANTE: 60, NOTIFIEE: 50, VALIDEE: 40, ANALYSEE: 30, DETECTEE: 20, RESOLUE: 10};
   let visible = 0;
   groups.forEach(group => {
     let keep = group[0];
@@ -95,9 +110,9 @@
       const rowPriority = statusPriority[row.dataset.status] || 0;
       const keepPriority = statusPriority[keep.dataset.status] || 0;
       if (rowPriority > keepPriority) keep = row;
-      else if (rowPriority === keepPriority && new Date(row.dataset.detected) < new Date(keep.dataset.detected)) keep = row;
+      else if (rowPriority === keepPriority && new Date(row.dataset.detected) > new Date(keep.dataset.detected)) keep = row;
     });
-    group.forEach(row => { if (row !== keep) row.hidden = true; });
+    group.forEach(row => { if (row !== keep) row.style.display = 'none'; });
     if (group.length > 1) {
       const badge = keep.querySelector('.occurrence-badge');
       if (badge) {
