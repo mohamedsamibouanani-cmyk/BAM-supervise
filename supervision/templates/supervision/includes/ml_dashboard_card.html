@@ -48,12 +48,12 @@
         <div class="ml-dashboard-orb"><i class="bi bi-diagram-3"></i></div>
         <div>
           <h3>Le modèle se construit avec vos validations</h3>
-          <p>{{ ml_trainable_examples }} exemple{{ ml_trainable_examples|pluralize }} causal{{ ml_trainable_examples|pluralize:' ,s' }} exploitable{{ ml_trainable_examples|pluralize }} sur un minimum de {{ ml_minimum_examples }}. {% if ml_excluded_examples %}{{ ml_excluded_examples }} décision{{ ml_excluded_examples|pluralize }} décrivant uniquement le constat technique est exclue de l’apprentissage.{% endif %}</p>
+          <p>{{ ml_trainable_examples }} exemple(s) causal(aux) exploitable(s) sur un minimum de {{ ml_minimum_examples }}. {% if ml_excluded_examples %}{{ ml_excluded_examples }} décision(s) décrivant uniquement le constat technique sont exclues de l’apprentissage.{% endif %}</p>
         </div>
       </div>
       <div class="ml-dashboard-grid">
-        <div class="ml-dashboard-stat"><span>Exemples ML utiles</span><strong>{{ ml_trainable_examples }} / {{ ml_minimum_examples }}</strong><small>{{ ml_examples }} validation{{ ml_examples|pluralize }} humaine{{ ml_examples|pluralize }} au total</small></div>
-        <div class="ml-dashboard-stat"><span>Causes observées</span><strong>{{ ml_motif_classes }}</strong><small>{{ ml_trainable_classes }} utilisable{{ ml_trainable_classes|pluralize }} pour l’apprentissage</small></div>
+        <div class="ml-dashboard-stat"><span>Exemples ML utiles</span><strong>{{ ml_trainable_examples }} / {{ ml_minimum_examples }}</strong><small>{{ ml_examples }} validation(s) humaine(s) au total</small></div>
+        <div class="ml-dashboard-stat"><span>Causes observées</span><strong>{{ ml_motif_classes }}</strong><small>{{ ml_trainable_classes }} cause(s) exploitable(s) pour l’apprentissage</small></div>
         <div class="ml-dashboard-stat"><span>Modèles entraînés</span><strong>{{ ml_model_count }}</strong><small>historique des versions</small></div>
         <div class="ml-dashboard-stat"><span>Décision</span><strong>Humaine</strong><small>toujours obligatoire</small></div>
       </div>
