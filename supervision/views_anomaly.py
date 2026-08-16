@@ -7,10 +7,11 @@ from django.utils.text import slugify
 from .forms_anomaly import MultiCauseValidationForm
 from .models import (
     Anomalie, ExempleApprentissage, HistoriqueAnomalie, JournalAudit, Motif,
-    Notification, Systeme, ValidationMotif,
+    Notification, PredictionMotif, Systeme, ValidationMotif,
 )
 from .services.analysis import prediction_target_codes, refresh_prediction_routing
 from .services.ml_inference import ensure_ml_predictions
+from .services.ml_training import training_status
 from .services.notifications import send_validation_email
 
 
@@ -32,6 +33,53 @@ def _prediction_target_system(prediction):
     if not codes:
         return None
     return Systeme.objects.filter(code_systeme=codes[0], actif=True).first()
+
+
+def _ml_context(anomaly):
+    """Expose clairement l'état du ML, même lorsqu'il ne produit aucune suggestion."""
+    status = training_status()
+    ml_predictions = list(
+        anomaly.predictions.filter(source_prediction=PredictionMotif.Source.ML)
+        .select_related('motif', 'modele')
+        .order_by('rang')
+    )
+    model = status.get('active_model')
+
+    if ml_predictions:
+        state = 'SUGGESTIONS'
+        message = (
+            f'{len(ml_predictions)} suggestion(s) causale(s) produite(s) par le modèle actif. '
+            'Le superviseur garde la décision finale.'
+        )
+    elif model is not None:
+        state = 'NO_COMPATIBLE_SUGGESTION'
+        message = (
+            'Le modèle ML est actif, mais aucune cause apprise n’est suffisamment compatible '
+            'avec ce dossier. Le constat de la règle métier reste donc seul affiché.'
+        )
+    elif status.get('ready'):
+        state = 'TRAINING_AVAILABLE'
+        message = (
+            'Les données sont suffisantes pour entraîner le ML, mais aucun modèle actif '
+            'n’est encore disponible pour ce dossier.'
+        )
+    else:
+        state = 'LEARNING'
+        message = (
+            f"ML en apprentissage : {status.get('trainable_examples', 0)} exemple(s) causal(aux) "
+            f"exploitable(s) sur {status.get('minimum_examples', 6)} requis, avec "
+            f"{status.get('trainable_classes', 0)} cause(s) suffisamment représentée(s)."
+        )
+
+    return {
+        'ml_state': state,
+        'ml_state_message': message,
+        'ml_predictions': ml_predictions,
+        'ml_model': model,
+        'ml_trainable_examples': status.get('trainable_examples', 0),
+        'ml_minimum_examples': status.get('minimum_examples', 6),
+        'ml_trainable_classes': status.get('trainable_classes', 0),
+    }
 
 
 def _create_learning_example(validation):
@@ -77,8 +125,6 @@ def anomaly_detail(request, pk):
         pk=pk,
     )
 
-    # Le ML doit rester visible comme aide à la décision même si une règle métier
-    # a déjà proposé une cause. Cette opération est idempotente pour le modèle actif.
     ensure_ml_predictions(anomaly)
     refresh_prediction_routing(anomaly)
 
@@ -95,12 +141,14 @@ def anomaly_detail(request, pk):
         .order_by('-creee_le')[:30]
     ) if final_validations else []
 
-    return render(request, 'supervision/anomaly_detail.html', {
+    context = {
         'anomaly': anomaly,
         'latest_validation': latest_validation,
         'final_validations': final_validations,
         'notifications': notifications,
-    })
+    }
+    context.update(_ml_context(anomaly))
+    return render(request, 'supervision/anomaly_detail.html', context)
 
 
 @login_required
@@ -110,7 +158,6 @@ def anomaly_validate(request, pk):
         Anomalie.objects.select_related('systeme_ecart', 'attribut'),
         pk=pk,
     )
-    # Garantit aussi la présence de propositions ML en accès direct au formulaire.
     ensure_ml_predictions(anomaly)
     refresh_prediction_routing(anomaly)
 
@@ -306,4 +353,6 @@ def anomaly_validate(request, pk):
     else:
         form = MultiCauseValidationForm(anomaly)
 
-    return render(request, 'supervision/validation_form.html', {'form': form, 'anomaly': anomaly})
+    context = {'form': form, 'anomaly': anomaly}
+    context.update(_ml_context(anomaly))
+    return render(request, 'supervision/validation_form.html', context)
