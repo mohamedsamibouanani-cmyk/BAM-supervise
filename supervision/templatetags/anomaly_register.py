@@ -1,5 +1,7 @@
 from django import template
 
+from supervision.models import Anomalie
+
 register = template.Library()
 
 
@@ -14,12 +16,7 @@ _STATUS_PRIORITY = {
 
 
 def _business_key(anomaly):
-    """Stable semantic identity of the supervised discrepancy across campaigns.
-
-    Do not use empreinte_anomalie here: fingerprints are implementation details and
-    may evolve with engine versions. The register groups the same business problem
-    by the fields a supervisor actually sees.
-    """
+    """Stable semantic identity of the supervised discrepancy across campaigns."""
     return (
         anomaly.code_envoi or '',
         anomaly.niveau or '',
@@ -42,14 +39,7 @@ def _representative(group):
     )
 
 
-@register.simple_tag
-def group_business_anomalies(anomalies):
-    """Return one visual dossier per business discrepancy.
-
-    Model rows remain untouched: this only removes duplicate campaign occurrences
-    from the register presentation. The representative receives transient metadata
-    used by the template (occurrence_count, first_detected, last_detected).
-    """
+def _group(anomalies):
     groups = {}
     order = []
     for anomaly in list(anomalies):
@@ -68,3 +58,30 @@ def group_business_anomalies(anomalies):
         representative.last_detected = max(item.detectee_le for item in group)
         result.append(representative)
     return result
+
+
+@register.simple_tag
+def group_business_anomalies(anomalies):
+    """Return one visual dossier per business discrepancy."""
+    return _group(anomalies)
+
+
+@register.simple_tag
+def business_anomaly_summary():
+    """Dashboard/register counters based on business dossiers, not campaign rows."""
+    anomalies = Anomalie.objects.select_related('attribut', 'systeme_ecart').all()
+    dossiers = _group(anomalies)
+    action = {'DETECTEE', 'ANALYSEE'}
+    follow_up = {'VALIDEE', 'NOTIFIEE', 'PERSISTANTE'}
+    resolved = {'RESOLUE'}
+    a_traiter = sum(1 for item in dossiers if item.statut in action)
+    en_suivi = sum(1 for item in dossiers if item.statut in follow_up)
+    resolues = sum(1 for item in dossiers if item.statut in resolved)
+    return {
+        'total': len(dossiers),
+        'a_traiter': a_traiter,
+        'a_valider': a_traiter,
+        'en_suivi': en_suivi,
+        'resolues': resolues,
+        'taux_resolution': round((resolues / len(dossiers) * 100), 1) if dossiers else 0,
+    }
