@@ -10,6 +10,7 @@ from .models import (
     Notification, Systeme, ValidationMotif,
 )
 from .services.analysis import prediction_target_codes, refresh_prediction_routing
+from .services.ml_inference import ensure_ml_predictions
 from .services.notifications import send_validation_email
 
 
@@ -76,6 +77,9 @@ def anomaly_detail(request, pk):
         pk=pk,
     )
 
+    # Le ML doit rester visible comme aide à la décision même si une règle métier
+    # a déjà proposé une cause. Cette opération est idempotente pour le modèle actif.
+    ensure_ml_predictions(anomaly)
     refresh_prediction_routing(anomaly)
 
     final_validations = list(
@@ -106,6 +110,8 @@ def anomaly_validate(request, pk):
         Anomalie.objects.select_related('systeme_ecart', 'attribut'),
         pk=pk,
     )
+    # Garantit aussi la présence de propositions ML en accès direct au formulaire.
+    ensure_ml_predictions(anomaly)
     refresh_prediction_routing(anomaly)
 
     if request.method == 'POST':
