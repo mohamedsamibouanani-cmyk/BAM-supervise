@@ -27,25 +27,22 @@ def _feature_dict(anomaly):
     }
 
 
-def _active_or_new_model():
-    """Retourne le modèle actif, ou tente un premier entraînement à la demande.
+def _motif_is_compatible(anomaly, motif):
+    """Évite les suggestions ML qui reformulent un autre type d'écart N3.
 
-    Ce rattrapage est important lorsque l'application possède déjà assez de
-    validations historiques au moment d'un déploiement : aucun nouvel exemple
-    n'est alors créé pour déclencher le signal post_save. L'ouverture d'un dossier
-    analysé suffit donc à rendre l'aide ML disponible dès que le seuil est atteint.
+    Pour un attribut, le champ métier est le même : c'est sa valeur qui peut être
+    absente ou différente. Le ML ne doit donc pas proposer simultanément les deux
+    constats génériques comme s'ils étaient deux causes distinctes.
     """
-    model = ModeleML.objects.filter(actif=True).order_by('-entraine_le').first()
-    if model is not None:
-        return model
+    if anomaly.niveau != Anomalie.Niveau.ATTRIBUT:
+        return True
 
-    # Import local pour éviter tout couplage au chargement des modules de signaux.
-    from .ml_training import safe_maybe_retrain_model
-
-    model = safe_maybe_retrain_model()
-    if model is not None:
-        return model
-    return ModeleML.objects.filter(actif=True).order_by('-entraine_le').first()
+    code = str(motif.code_motif or '').strip().upper()
+    if anomaly.type_ecart == Anomalie.TypeEcart.ABSENT:
+        return code != 'ATTRIBUT_DIFFERENT'
+    if anomaly.type_ecart == Anomalie.TypeEcart.DIFFERENT:
+        return code != 'ATTRIBUT_NON_SYNCHRONISE'
+    return True
 
 
 def ensure_ml_predictions(anomaly, max_suggestions=2):
@@ -58,7 +55,14 @@ def ensure_ml_predictions(anomaly, max_suggestions=2):
     if anomaly.niveau == Anomalie.Niveau.SERVICE:
         return []
 
-    model = _active_or_new_model()
+    model = ModeleML.objects.filter(actif=True).order_by('-entraine_le').first()
+    if model is None:
+        # Cas fréquent en démonstration : les validations viennent juste de rendre
+        # l'historique entraînable mais aucun callback n'a encore produit le modèle.
+        from .ml_training import safe_maybe_retrain_model
+        model = safe_maybe_retrain_model()
+        if model is None:
+            model = ModeleML.objects.filter(actif=True).order_by('-entraine_le').first()
     if model is None:
         return []
 
@@ -66,10 +70,14 @@ def ensure_ml_predictions(anomaly, max_suggestions=2):
         anomaly.predictions.filter(
             source_prediction=PredictionMotif.Source.ML,
             modele=model,
-        ).order_by('rang')
+        ).select_related('motif').order_by('rang')
     )
-    if existing:
-        return existing
+    compatible_existing = [p for p in existing if _motif_is_compatible(anomaly, p.motif)]
+    incompatible_ids = [p.pk for p in existing if p not in compatible_existing]
+    if incompatible_ids:
+        anomaly.predictions.filter(pk__in=incompatible_ids).delete()
+    if compatible_existing:
+        return compatible_existing
 
     path = Path(model.chemin_fichier)
     if not path.exists():
@@ -99,7 +107,7 @@ def ensure_ml_predictions(anomaly, max_suggestions=2):
             motif = Motif.objects.filter(
                 code_motif=str(code_motif), actif=True
             ).first()
-            if motif is None:
+            if motif is None or not _motif_is_compatible(anomaly, motif):
                 continue
 
             last_rank += 1
@@ -114,8 +122,8 @@ def ensure_ml_predictions(anomaly, max_suggestions=2):
                     source_prediction=PredictionMotif.Source.ML,
                     modele=model,
                     motif=motif,
-                    # La suggestion ML porte sur le motif. Le système observé reste
-                    # un indice de contexte et la cible finale reste une décision humaine.
+                    # Cible proposée uniquement comme point de départ. La décision
+                    # et le ou les systèmes à corriger restent validés humainement.
                     systeme_a_corriger_predit=anomaly.systeme_ecart,
                     rang=last_rank,
                     score_confiance=Decimal(
