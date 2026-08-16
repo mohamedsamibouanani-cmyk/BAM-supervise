@@ -13,12 +13,10 @@ from supervision.services.ml_training import training_status
 
 
 class MLActivationAfterSixExamplesTests(TestCase):
-    """Trois vérifications du scénario observé dans la démonstration.
+    """Trois vérifications du scénario d'activation après six causes utiles.
 
-    Le superviseur possède au moins 6 décisions éligibles et plusieurs motifs,
-    mais certains motifs n'ont encore qu'un seul exemple. Le ML doit néanmoins
-    pouvoir démarrer, rester une aide et afficher une probabilité uniquement pour
-    ses propres suggestions.
+    Le modèle démarre à partir de 6 exemples causaux exploitables, avec au moins
+    deux causes différentes et au moins deux validations humaines par cause.
     """
 
     def setUp(self):
@@ -37,13 +35,15 @@ class MLActivationAfterSixExamplesTests(TestCase):
                 categorie='APPRENTISSAGE',
                 actif=True,
             )
-            for index in range(1, 5)
+            for index in range(1, 4)
         ]
 
-        # Répartition volontairement déséquilibrée : 3 / 1 / 1 / 1.
-        # C'est le cas qui empêchait auparavant le premier entraînement.
-        labels = [self.motifs[0], self.motifs[0], self.motifs[0],
-                  self.motifs[1], self.motifs[2], self.motifs[3]]
+        # Trois causes réelles confirmées deux fois chacune : 2 / 2 / 2.
+        labels = [
+            self.motifs[0], self.motifs[0],
+            self.motifs[1], self.motifs[1],
+            self.motifs[2], self.motifs[2],
+        ]
         for index, motif in enumerate(labels, start=1):
             anomaly = Anomalie.objects.create(
                 campagne=self.campaign,
@@ -91,8 +91,8 @@ class MLActivationAfterSixExamplesTests(TestCase):
 
         self.assertEqual(status['eligible_examples'], 6)
         self.assertEqual(status['trainable_examples'], 6)
-        self.assertEqual(status['motif_classes'], 4)
-        self.assertEqual(status['trainable_classes'], 4)
+        self.assertEqual(status['motif_classes'], 3)
+        self.assertEqual(status['trainable_classes'], 3)
         self.assertTrue(status['ready'])
 
     def test_iteration_2_opening_an_anomaly_trains_and_predicts_on_demand(self):
@@ -104,7 +104,7 @@ class MLActivationAfterSixExamplesTests(TestCase):
 
                 model = ModeleML.objects.get(actif=True)
                 self.assertEqual(model.nb_exemples, 6)
-                self.assertEqual(model.metriques['nb_classes'], 4)
+                self.assertEqual(model.metriques['nb_classes'], 3)
                 self.assertTrue(Path(model.chemin_fichier).exists())
 
         self.assertGreaterEqual(len(created), 1)
