@@ -1,100 +1,122 @@
-<section class="panel dashboard-ml-panel" aria-labelledby="forecast-panel-title">
-  <div class="panel-header">
+<section class="panel dashboard-ml-panel forecast-executive" aria-labelledby="forecast-panel-title">
+  <div class="panel-header forecast-header">
     <div>
-      <div class="page-eyebrow"><i class="bi bi-graph-up-arrow"></i> Prévision des campagnes</div>
-      <h2 class="panel-title" id="forecast-panel-title">Machine Learning</h2>
-      <p class="panel-subtitle">Deux modèles complémentaires travaillent uniquement sur l’historique des campagnes : Random Forest prévoit les volumes et la régression logistique prévoit le type d’anomalie dominant.</p>
+      <div class="page-eyebrow"><i class="bi bi-stars"></i> Prévision intelligente</div>
+      <h2 class="panel-title" id="forecast-panel-title">Prochaine campagne</h2>
+      <p class="panel-subtitle">Une lecture simple de l’historique pour savoir quoi surveiller avant le prochain import.</p>
     </div>
     {% if forecast.ready %}
-      <span class="status-badge status-RESOLUE"><i class="bi bi-stars"></i> Prévision disponible</span>
+      <span class="forecast-maturity {% if forecast.forecast_maturity == 'EXPLORATOIRE' %}is-exploratory{% else %}is-reinforced{% endif %}">
+        <i class="bi bi-activity"></i>
+        {% if forecast.forecast_maturity == 'EXPLORATOIRE' %}Prévision exploratoire{% else %}Prévision renforcée{% endif %}
+      </span>
     {% else %}
-      <span class="status-badge status-ANALYSEE"><i class="bi bi-hourglass-split"></i> Historique insuffisant</span>
+      <span class="forecast-maturity is-waiting"><i class="bi bi-hourglass-split"></i> En préparation</span>
     {% endif %}
   </div>
 
   <div class="panel-body">
     {% if forecast.ready %}
-      <div class="ml-dashboard-hero">
-        <div class="ml-dashboard-orb"><i class="bi bi-stars"></i></div>
-        <div class="ml-dashboard-hero-copy">
-          <span>Prochaine campagne · Random Forest</span>
-          <strong>≈ {{ forecast.predicted_total }} anomalies</strong>
-          <small>intervalle indicatif : {{ forecast.interval_low }} – {{ forecast.interval_high }}</small>
+      <div class="forecast-command-center">
+        <div class="forecast-main-number">
+          <span class="forecast-label">Anomalies attendues</span>
+          <strong>≈ {{ forecast.predicted_total }}</strong>
+          <small>fourchette indicative {{ forecast.interval_low }} – {{ forecast.interval_high }}</small>
         </div>
-        <div class="ml-dashboard-probability">
-          <span>Tendance</span>
-          <strong>{{ forecast.trend }}</strong>
-          <small>dernière campagne : {{ forecast.last_campaign_total }}</small>
+
+        <div class="forecast-focus-card">
+          <span class="forecast-label">À surveiller en priorité</span>
+          <strong>{{ forecast.dominant_type|default:'Aucun type dominant' }}</strong>
+          <small>
+            {% if forecast.classification_ready %}
+              Régression logistique : {{ forecast.classification_probability }} %
+            {% else %}
+              Déduit de la répartition Random Forest
+            {% endif %}
+          </small>
+        </div>
+
+        <div class="forecast-trend-card is-{{ forecast.trend|lower }}">
+          <span class="forecast-label">Tendance</span>
+          <strong>
+            {% if forecast.trend == 'HAUSSE' %}<i class="bi bi-arrow-up-right"></i> Hausse
+            {% elif forecast.trend == 'BAISSE' %}<i class="bi bi-arrow-down-right"></i> Baisse
+            {% else %}<i class="bi bi-arrow-right"></i> Stable{% endif %}
+          </strong>
+          <small>Dernière campagne : {{ forecast.last_campaign_total }} anomalie(s)</small>
         </div>
       </div>
 
-      {% if forecast.forecast_maturity == 'EXPLORATOIRE' %}
-      <div class="bam-section-note mt-3">
-        <i class="bi bi-info-circle"></i>
-        <div><strong>Prévision exploratoire :</strong> le ML est activé dès 3 campagnes terminées pour la démonstration. Les estimations deviennent plus robustes à mesure que l’historique augmente.</div>
+      <div class="forecast-watch-grid">
+        <div class="forecast-watch-item">
+          <i class="bi bi-braces"></i>
+          <div><span>Attribut à surveiller</span><strong>{{ forecast.historical_dominant_attribute|default:'—' }}</strong></div>
+        </div>
+        <div class="forecast-watch-item">
+          <i class="bi bi-diagram-3"></i>
+          <div><span>Système le plus observé</span><strong>{{ forecast.historical_dominant_system|default:'—' }}</strong></div>
+        </div>
+        <div class="forecast-watch-item">
+          <i class="bi bi-clock-history"></i>
+          <div><span>Historique utilisé</span><strong>{{ forecast.campaign_count }} campagne(s)</strong></div>
+        </div>
       </div>
-      {% endif %}
 
-      <div class="ml-dashboard-grid">
-        {% for row in forecast.distribution %}
-          <div class="ml-dashboard-stat">
-            <span>{{ row.label }}</span>
-            <strong>{{ row.count }}</strong>
-            <small>{{ row.percent }} % de la prévision Random Forest</small>
+      <div class="forecast-breakdown">
+        <div class="forecast-section-head">
+          <div><span class="forecast-label">Répartition prévue</span><strong>Par type d’anomalie</strong></div>
+          <span class="forecast-model-pill">Random Forest</span>
+        </div>
+        <div class="forecast-distribution-list">
+          {% for row in forecast.distribution %}
+            <div class="forecast-distribution-row">
+              <div class="forecast-distribution-copy"><span>{{ row.label }}</span><strong>{{ row.count }}</strong></div>
+              <div class="forecast-progress" aria-label="{{ row.percent }} %"><span style="width:{{ row.percent }}%"></span></div>
+              <small>{{ row.percent }} %</small>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="forecast-supervisor-note">
+        <i class="bi bi-eye"></i>
+        <div><strong>Lecture superviseur :</strong> concentrez l’attention sur <strong>{{ forecast.dominant_type|default:'les anomalies récurrentes' }}</strong>{% if forecast.historical_dominant_attribute %}, notamment <strong>{{ forecast.historical_dominant_attribute }}</strong>{% endif %}. La prévision prépare la supervision ; après import, le moteur déterministe reste la source de vérité.</div>
+      </div>
+
+      <details class="forecast-technical-details">
+        <summary><i class="bi bi-cpu"></i> Voir le détail des modèles</summary>
+        <div class="forecast-technical-grid">
+          <div>
+            <span>Modèle volume</span>
+            <strong>Random Forest Regressor</strong>
+            <small>Prévoit le nombre d’anomalies et leur répartition par type.</small>
           </div>
-        {% endfor %}
-      </div>
-
-      <div class="bam-section-note mt-3">
-        <i class="bi bi-diagram-3"></i>
-        <div>
-          <strong>Régression logistique :</strong>
-          {% if forecast.classification_ready %}
-            type dominant prédit : <strong>{{ forecast.classification_dominant_type }}</strong>
-            avec une probabilité ML de <strong>{{ forecast.classification_probability }} %</strong>.
-          {% else %}
-            les campagnes disponibles ne contiennent pas encore au moins deux types dominants différents ; la classification logistique reste donc inactive et le type dominant affiché provient du Random Forest.
-          {% endif %}
-        </div>
-      </div>
-
-      {% if forecast.classification_ready and forecast.classification_distribution %}
-      <div class="ml-dashboard-grid mt-3">
-        {% for row in forecast.classification_distribution %}
-          <div class="ml-dashboard-stat">
-            <span>{{ row.label }}</span>
-            <strong>{{ row.probability }} %</strong>
-            <small>probabilité issue de la régression logistique</small>
+          <div>
+            <span>Modèle dominant</span>
+            <strong>Régression logistique</strong>
+            <small>{% if forecast.classification_ready %}Type prédit : {{ forecast.classification_dominant_type }} · {{ forecast.classification_probability }} %.{% else %}Historique trop homogène pour produire une classification distincte.{% endif %}</small>
           </div>
-        {% endfor %}
-      </div>
-      {% endif %}
-
-      <div class="bam-section-note mt-3">
-        <i class="bi bi-bar-chart-line"></i>
-        <div><strong>Type probablement dominant :</strong> {{ forecast.dominant_type|default:'—' }}. {% if forecast.historical_dominant_attribute %}Attribut historiquement le plus répété : <strong>{{ forecast.historical_dominant_attribute }}</strong>.{% endif %} {% if forecast.historical_dominant_system %}Système le plus souvent observé : <strong>{{ forecast.historical_dominant_system }}</strong>.{% endif %}</div>
-      </div>
-      <div class="bam-section-note mt-3">
-        <i class="bi bi-info-circle"></i>
-        <div><strong>Important :</strong> ces deux modèles servent uniquement à anticiper la prochaine campagne. Après import, seul le moteur déterministe SMI/SICOM/SIBO fait foi pour le nombre réel et les types réels d’anomalies.</div>
-      </div>
+          <div>
+            <span>Maturité</span>
+            <strong>{% if forecast.forecast_maturity == 'EXPLORATOIRE' %}Exploratoire{% else %}Renforcée{% endif %}</strong>
+            <small>{{ forecast.training_pairs }} transition(s) campagne t → t+1 utilisée(s).</small>
+          </div>
+        </div>
+      </details>
     {% else %}
-      <div class="ml-dashboard-empty">
-        <div class="ml-dashboard-orb"><i class="bi bi-database"></i></div>
+      <div class="forecast-empty-state">
+        <div class="forecast-empty-icon"><i class="bi bi-database"></i></div>
         <div>
-          <h3>Les modèles attendent 3 campagnes terminées</h3>
-          <p>{{ forecast.campaign_count }} campagne(s) terminée(s) disponible(s). Il en faut au minimum {{ forecast.minimum_campaigns }} pour commencer une première prévision de la campagne suivante.</p>
+          <span class="forecast-label">Prévision en préparation</span>
+          <h3>{{ forecast.campaign_count }} / {{ forecast.minimum_campaigns }} campagnes disponibles</h3>
+          <p>Encore {{ forecast.remaining_campaigns }} campagne(s) terminée(s) avant la première estimation.</p>
         </div>
       </div>
-      <div class="ml-dashboard-grid">
-        <div class="ml-dashboard-stat"><span>Historique disponible</span><strong>{{ forecast.campaign_count }} / {{ forecast.minimum_campaigns }}</strong><small>{{ forecast.remaining_campaigns }} campagne(s) encore nécessaire(s)</small></div>
-        <div class="ml-dashboard-stat"><span>Type le plus répété</span><strong>{{ forecast.historical_dominant_type|default:'—' }}</strong><small>statistique historique, pas une prédiction</small></div>
-        <div class="ml-dashboard-stat"><span>Modèle 1</span><strong>Random Forest</strong><small>prévision du nombre par type</small></div>
-        <div class="ml-dashboard-stat"><span>Modèle 2</span><strong>Régression logistique</strong><small>classification du type dominant</small></div>
-      </div>
-      <div class="bam-section-note mt-3">
-        <i class="bi bi-shield-check"></i>
-        <div><strong>Pas de faux ML :</strong> avant 3 campagnes, BAM Supervise affiche uniquement des statistiques réelles et n’invente aucune prévision.</div>
+
+      <div class="forecast-watch-grid">
+        <div class="forecast-watch-item"><i class="bi bi-repeat"></i><div><span>Type le plus répété</span><strong>{{ forecast.historical_dominant_type|default:'—' }}</strong></div></div>
+        <div class="forecast-watch-item"><i class="bi bi-braces"></i><div><span>Attribut le plus répété</span><strong>{{ forecast.historical_dominant_attribute|default:'—' }}</strong></div></div>
+        <div class="forecast-watch-item"><i class="bi bi-diagram-3"></i><div><span>Système le plus observé</span><strong>{{ forecast.historical_dominant_system|default:'—' }}</strong></div></div>
       </div>
     {% endif %}
   </div>
