@@ -5,6 +5,7 @@ from collections import Counter
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -71,6 +72,130 @@ def _historical_highlights(campaigns):
     }
 
 
+def _features(vectors, index):
+    return np.concatenate([vectors[index], [float(index + 1)]])
+
+
+def _new_regression_model():
+    return RandomForestRegressor(
+        n_estimators=200,
+        max_depth=4,
+        min_samples_leaf=1,
+        random_state=42,
+    )
+
+
+def _new_classification_model():
+    return Pipeline([
+        ('scaler', StandardScaler()),
+        ('classifier', LogisticRegression(
+            max_iter=1000,
+            class_weight='balanced',
+            random_state=42,
+        )),
+    ])
+
+
+def _rolling_evaluation(vectors):
+    """Évalue les modèles en chronologie réelle, sans utiliser le futur pour prédire le passé.
+
+    À chaque étape, les modèles sont entraînés uniquement sur les campagnes antérieures
+    puis évalués sur la campagne suivante. Avec trois campagnes, Random Forest dispose
+    déjà d'un premier test hors apprentissage ; la classification peut nécessiter plus
+    d'historique si les classes antérieures ne sont pas assez variées.
+    """
+    rf_actual_totals = []
+    rf_predicted_totals = []
+    rf_actual_vectors = []
+    rf_predicted_vectors = []
+    logistic_actual = []
+    logistic_predicted = []
+
+    # target_index est l'indice de la campagne réellement observée à prédire.
+    # Il faut au minimum C1->C2 comme apprentissage pour tester la prédiction de C3.
+    for target_index in range(2, len(vectors)):
+        x_train = []
+        y_reg_train = []
+        y_cls_train = []
+        for source_index in range(0, target_index - 1):
+            x_train.append(_features(vectors, source_index))
+            y_reg_train.append(vectors[source_index + 1])
+            y_cls_train.append(_dominant_code(vectors[source_index + 1]))
+
+        if not x_train:
+            continue
+
+        test_features = _features(vectors, target_index - 1)
+        actual_vector = vectors[target_index]
+
+        rf = _new_regression_model()
+        rf.fit(np.asarray(x_train), np.asarray(y_reg_train))
+        rf_raw = rf.predict([test_features])[0]
+        rf_prediction = np.maximum(0, np.rint(rf_raw)).astype(int)
+
+        rf_actual_vectors.append(actual_vector)
+        rf_predicted_vectors.append(rf_prediction)
+        rf_actual_totals.append(float(np.sum(actual_vector)))
+        rf_predicted_totals.append(float(np.sum(rf_prediction)))
+
+        valid_rows = [
+            (features, label)
+            for features, label in zip(x_train, y_cls_train)
+            if label is not None
+        ]
+        labels = [row[1] for row in valid_rows]
+        actual_class = _dominant_code(actual_vector)
+        if actual_class is not None and len(set(labels)) >= 2:
+            classifier = _new_classification_model()
+            classifier.fit(
+                np.asarray([row[0] for row in valid_rows]),
+                np.asarray(labels),
+            )
+            logistic_predicted.append(str(classifier.predict([test_features])[0]))
+            logistic_actual.append(actual_class)
+
+    result = {
+        'rf_evaluation_count': len(rf_actual_totals),
+        'rf_mae_total': None,
+        'rf_rmse_total': None,
+        'rf_mae_by_type': None,
+        'classification_evaluation_count': len(logistic_actual),
+        'classification_accuracy': None,
+        'classification_f1_macro': None,
+    }
+
+    if rf_actual_totals:
+        result['rf_mae_total'] = round(
+            float(mean_absolute_error(rf_actual_totals, rf_predicted_totals)), 2
+        )
+        result['rf_rmse_total'] = round(
+            float(np.sqrt(mean_squared_error(rf_actual_totals, rf_predicted_totals))), 2
+        )
+        actual_matrix = np.asarray(rf_actual_vectors)
+        predicted_matrix = np.asarray(rf_predicted_vectors)
+        per_type = np.mean(np.abs(actual_matrix - predicted_matrix), axis=0)
+        result['rf_mae_by_type'] = [
+            {'code': code, 'label': label, 'mae': round(float(value), 2)}
+            for (code, label), value in zip(FORECAST_LABELS, per_type)
+        ]
+
+    if logistic_actual:
+        result['classification_accuracy'] = round(
+            float(accuracy_score(logistic_actual, logistic_predicted)) * 100, 1
+        )
+        result['classification_f1_macro'] = round(
+            float(f1_score(
+                logistic_actual,
+                logistic_predicted,
+                average='macro',
+                zero_division=0,
+            )) * 100,
+            1,
+        )
+
+    return result
+
+
 def campaign_forecast():
     """Prévoit la prochaine campagne avec deux modèles complémentaires.
 
@@ -89,6 +214,7 @@ def campaign_forecast():
     campaigns = _history()
     vectors = [_campaign_vector(campaign) for campaign in campaigns]
     highlights = _historical_highlights(campaigns)
+    evaluation = _rolling_evaluation(vectors)
     base = {
         'ready': False,
         'campaign_count': len(campaigns),
@@ -102,20 +228,17 @@ def campaign_forecast():
         'classification_dominant_type': None,
         'forecast_maturity': 'EXPLORATOIRE' if len(campaigns) < 6 else 'RENFORCEE',
         **highlights,
+        **evaluation,
     }
 
     if len(campaigns) < MIN_CAMPAIGNS_FOR_FORECAST:
         return base
 
-    # Une campagne constitue un point temporel. On apprend le passage t -> t+1.
-    # Avec trois campagnes, cela fournit deux transitions d'apprentissage : c'est
-    # suffisant pour une première estimation de démonstration, mais pas pour une
-    # validation statistique robuste.
     x = []
     y_regression = []
     y_classification = []
     for index in range(len(vectors) - 1):
-        features = np.concatenate([vectors[index], [float(index + 1)]])
+        features = _features(vectors, index)
         x.append(features)
         y_regression.append(vectors[index + 1])
         y_classification.append(_dominant_code(vectors[index + 1]))
@@ -123,30 +246,18 @@ def campaign_forecast():
     x_array = np.asarray(x)
     y_regression_array = np.asarray(y_regression)
 
-    regression_model = RandomForestRegressor(
-        n_estimators=200,
-        max_depth=4,
-        min_samples_leaf=1,
-        random_state=42,
-    )
+    regression_model = _new_regression_model()
     regression_model.fit(x_array, y_regression_array)
 
-    next_index = float(len(vectors))
-    next_features = np.concatenate([vectors[-1], [next_index]])
+    next_features = _features(vectors, len(vectors) - 1)
     raw_prediction = regression_model.predict([next_features])[0]
     predicted = np.maximum(0, np.rint(raw_prediction)).astype(int)
 
-    fitted = regression_model.predict(x_array)
-    mae_total = float(
-        np.mean(
-            np.abs(
-                np.sum(fitted, axis=1)
-                - np.sum(y_regression_array, axis=1)
-            )
-        )
-    )
+    # La fourchette s'appuie prioritairement sur l'erreur réellement observée
+    # en backtesting. À défaut, on garde une marge minimale d'une anomalie.
+    backtest_mae = evaluation.get('rf_mae_total')
+    margin = max(1, int(round(backtest_mae))) if backtest_mae is not None else 1
     predicted_total = int(predicted.sum())
-    margin = max(1, int(round(mae_total)))
 
     distribution = []
     for (code, label), value in zip(FORECAST_LABELS, predicted):
@@ -171,14 +282,7 @@ def campaign_forecast():
     if len(set(classification_labels)) >= 2:
         x_classification = np.asarray([row[0] for row in valid_classification_rows])
         y_classification_array = np.asarray(classification_labels)
-        classification_model = Pipeline([
-            ('scaler', StandardScaler()),
-            ('classifier', LogisticRegression(
-                max_iter=1000,
-                class_weight='balanced',
-                random_state=42,
-            )),
-        ])
+        classification_model = _new_classification_model()
         classification_model.fit(x_classification, y_classification_array)
         probabilities = classification_model.predict_proba([next_features])[0]
         classes = classification_model.named_steps['classifier'].classes_
@@ -233,5 +337,4 @@ def campaign_forecast():
         'trend': trend,
         'training_pairs': len(x),
         'classification_training_pairs': len(valid_classification_rows),
-        'mae_total': round(mae_total, 2),
     }
