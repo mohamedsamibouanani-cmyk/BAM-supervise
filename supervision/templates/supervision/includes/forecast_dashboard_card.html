@@ -28,6 +28,13 @@
         </div>
       </div>
 
+      {% if forecast.forecast_maturity == 'EXPLORATOIRE' %}
+      <div class="bam-section-note mt-3">
+        <i class="bi bi-info-circle"></i>
+        <div><strong>Prévision exploratoire :</strong> le ML est activé dès 3 campagnes terminées pour la démonstration. Les estimations deviennent plus robustes à mesure que l’historique augmente.</div>
+      </div>
+      {% endif %}
+
       <div class="ml-dashboard-grid">
         {% for row in forecast.distribution %}
           <div class="ml-dashboard-stat">
@@ -46,7 +53,7 @@
             type dominant prédit : <strong>{{ forecast.classification_dominant_type }}</strong>
             avec une probabilité ML de <strong>{{ forecast.classification_probability }} %</strong>.
           {% else %}
-            historique encore trop homogène pour entraîner une classification fiable du type dominant ; le type affiché provient alors de la répartition Random Forest.
+            les campagnes disponibles ne contiennent pas encore au moins deux types dominants différents ; la classification logistique reste donc inactive et le type dominant affiché provient du Random Forest.
           {% endif %}
         </div>
       </div>
@@ -75,8 +82,8 @@
       <div class="ml-dashboard-empty">
         <div class="ml-dashboard-orb"><i class="bi bi-database"></i></div>
         <div>
-          <h3>Les modèles attendent davantage de campagnes</h3>
-          <p>{{ forecast.campaign_count }} campagne(s) terminée(s) disponible(s). Il en faut au minimum {{ forecast.minimum_campaigns }} pour commencer une prévision de la campagne suivante.</p>
+          <h3>Les modèles attendent 3 campagnes terminées</h3>
+          <p>{{ forecast.campaign_count }} campagne(s) terminée(s) disponible(s). Il en faut au minimum {{ forecast.minimum_campaigns }} pour commencer une première prévision de la campagne suivante.</p>
         </div>
       </div>
       <div class="ml-dashboard-grid">
@@ -87,7 +94,7 @@
       </div>
       <div class="bam-section-note mt-3">
         <i class="bi bi-shield-check"></i>
-        <div><strong>Pas de faux ML :</strong> tant que l’historique est insuffisant, BAM Supervise affiche uniquement des statistiques réelles et n’invente aucune prévision.</div>
+        <div><strong>Pas de faux ML :</strong> avant 3 campagnes, BAM Supervise affiche uniquement des statistiques réelles et n’invente aucune prévision.</div>
       </div>
     {% endif %}
   </div>
