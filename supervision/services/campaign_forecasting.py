@@ -4,6 +4,9 @@ from collections import Counter
 
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 from supervision.models import Anomalie, CampagneSupervision
 
@@ -30,6 +33,13 @@ def _bucket(anomaly):
 def _campaign_vector(campaign):
     counts = Counter(_bucket(a) for a in campaign.anomalies.all())
     return np.array([float(counts.get(code, 0)) for code, _label in FORECAST_LABELS], dtype=float)
+
+
+def _dominant_code(vector):
+    if vector is None or len(vector) == 0 or float(np.sum(vector)) <= 0:
+        return None
+    index = int(np.argmax(vector))
+    return FORECAST_LABELS[index][0]
 
 
 def _history():
@@ -62,10 +72,14 @@ def _historical_highlights(campaigns):
 
 
 def campaign_forecast():
-    """Prévoit la structure de la prochaine campagne à partir des campagnes passées.
+    """Prévoit la prochaine campagne avec deux modèles complémentaires.
 
-    Le moteur déterministe reste l'unique source de vérité après import. Le ML
-    n'intervient qu'avant la campagne suivante et ne crée/modifie aucune anomalie.
+    Random Forest = régression du nombre d'anomalies par type.
+    Régression logistique = classification du type d'anomalie dominant.
+
+    Le moteur déterministe reste l'unique source de vérité après import. Les
+    modèles n'interviennent qu'avant la campagne suivante et ne créent/modifient
+    aucune anomalie.
     """
     campaigns = _history()
     vectors = [_campaign_vector(campaign) for campaign in campaigns]
@@ -75,7 +89,12 @@ def campaign_forecast():
         'campaign_count': len(campaigns),
         'minimum_campaigns': MIN_CAMPAIGNS_FOR_FORECAST,
         'remaining_campaigns': max(0, MIN_CAMPAIGNS_FOR_FORECAST - len(campaigns)),
-        'method': 'Random Forest sur historique de campagnes',
+        'method': 'Random Forest + Régression logistique',
+        'regression_method': 'Random Forest Regressor',
+        'classification_method': 'Régression logistique multinomiale',
+        'classification_ready': False,
+        'classification_probability': None,
+        'classification_dominant_type': None,
         **highlights,
     }
 
@@ -83,31 +102,43 @@ def campaign_forecast():
         return base
 
     # Une campagne constitue un point temporel. On apprend le passage t -> t+1.
-    # Les variables incluent la répartition de t et son indice temporel afin de
-    # capter à la fois récurrence et tendance sans mélanger ce modèle au moteur métier.
+    # Les variables contiennent la répartition de la campagne t et son indice
+    # temporel pour capter récurrence et tendance.
     x = []
-    y = []
+    y_regression = []
+    y_classification = []
     for index in range(len(vectors) - 1):
-        x.append(np.concatenate([vectors[index], [float(index + 1)]]))
-        y.append(vectors[index + 1])
+        features = np.concatenate([vectors[index], [float(index + 1)]])
+        x.append(features)
+        y_regression.append(vectors[index + 1])
+        y_classification.append(_dominant_code(vectors[index + 1]))
 
-    model = RandomForestRegressor(
+    x_array = np.asarray(x)
+    y_regression_array = np.asarray(y_regression)
+
+    # Modèle 1 : Random Forest pour prévoir les volumes par type.
+    regression_model = RandomForestRegressor(
         n_estimators=200,
         max_depth=4,
         min_samples_leaf=1,
         random_state=42,
     )
-    model.fit(np.asarray(x), np.asarray(y))
+    regression_model.fit(x_array, y_regression_array)
 
     next_index = float(len(vectors))
     next_features = np.concatenate([vectors[-1], [next_index]])
-    raw_prediction = model.predict([next_features])[0]
+    raw_prediction = regression_model.predict([next_features])[0]
     predicted = np.maximum(0, np.rint(raw_prediction)).astype(int)
 
-    # Erreur d'apprentissage utilisée uniquement comme bande indicative, jamais
-    # comme probabilité. Avec un petit historique, elle doit être lue prudemment.
-    fitted = model.predict(np.asarray(x))
-    mae_total = float(np.mean(np.abs(np.sum(fitted, axis=1) - np.sum(np.asarray(y), axis=1))))
+    fitted = regression_model.predict(x_array)
+    mae_total = float(
+        np.mean(
+            np.abs(
+                np.sum(fitted, axis=1)
+                - np.sum(y_regression_array, axis=1)
+            )
+        )
+    )
     predicted_total = int(predicted.sum())
     margin = max(1, int(round(mae_total)))
 
@@ -117,7 +148,61 @@ def campaign_forecast():
         pct = round((value / predicted_total * 100), 1) if predicted_total else 0
         distribution.append({'code': code, 'label': label, 'count': value, 'percent': pct})
 
-    dominant = max(distribution, key=lambda row: row['count']) if distribution else None
+    rf_dominant = max(distribution, key=lambda row: row['count']) if distribution else None
+
+    # Modèle 2 : régression logistique pour prévoir directement le type dominant.
+    # Elle n'est entraînée que si l'historique comporte au moins deux classes.
+    label_by_code = dict(FORECAST_LABELS)
+    valid_classification_rows = [
+        (features, label)
+        for features, label in zip(x, y_classification)
+        if label is not None
+    ]
+    classification_ready = False
+    classification_probability = None
+    classification_code = None
+    class_distribution = []
+
+    classification_labels = [row[1] for row in valid_classification_rows]
+    if len(set(classification_labels)) >= 2:
+        x_classification = np.asarray([row[0] for row in valid_classification_rows])
+        y_classification_array = np.asarray(classification_labels)
+        classification_model = Pipeline([
+            ('scaler', StandardScaler()),
+            ('classifier', LogisticRegression(
+                max_iter=1000,
+                class_weight='balanced',
+                random_state=42,
+            )),
+        ])
+        classification_model.fit(x_classification, y_classification_array)
+        probabilities = classification_model.predict_proba([next_features])[0]
+        classes = classification_model.named_steps['classifier'].classes_
+        best_index = int(np.argmax(probabilities))
+        classification_code = str(classes[best_index])
+        classification_probability = round(float(probabilities[best_index]) * 100, 1)
+        class_distribution = [
+            {
+                'code': str(code),
+                'label': label_by_code.get(str(code), str(code)),
+                'probability': round(float(probability) * 100, 1),
+            }
+            for code, probability in sorted(
+                zip(classes, probabilities),
+                key=lambda item: float(item[1]),
+                reverse=True,
+            )
+        ]
+        classification_ready = True
+
+    # Le type affiché comme dominant privilégie la classification quand elle est
+    # statistiquement entraînable ; sinon le résultat Random Forest reste utilisé.
+    dominant_type = (
+        label_by_code.get(classification_code)
+        if classification_ready
+        else (rf_dominant['label'] if rf_dominant else None)
+    )
+
     last_total = int(vectors[-1].sum()) if vectors else 0
     if predicted_total < last_total:
         trend = 'BAISSE'
@@ -133,10 +218,18 @@ def campaign_forecast():
         'interval_low': max(0, predicted_total - margin),
         'interval_high': predicted_total + margin,
         'distribution': distribution,
-        'dominant_type': dominant['label'] if dominant else None,
-        'dominant_type_count': dominant['count'] if dominant else 0,
+        'dominant_type': dominant_type,
+        'dominant_type_count': rf_dominant['count'] if rf_dominant else 0,
+        'rf_dominant_type': rf_dominant['label'] if rf_dominant else None,
+        'classification_ready': classification_ready,
+        'classification_probability': classification_probability,
+        'classification_dominant_type': (
+            label_by_code.get(classification_code) if classification_ready else None
+        ),
+        'classification_distribution': class_distribution,
         'last_campaign_total': last_total,
         'trend': trend,
         'training_pairs': len(x),
+        'classification_training_pairs': len(valid_classification_rows),
         'mae_total': round(mae_total, 2),
     }
