@@ -5,7 +5,6 @@ from collections import Counter
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -39,7 +38,8 @@ def _campaign_vector(campaign):
 def _dominant_code(vector):
     if vector is None or len(vector) == 0 or float(np.sum(vector)) <= 0:
         return None
-    return FORECAST_LABELS[int(np.argmax(vector))][0]
+    index = int(np.argmax(vector))
+    return FORECAST_LABELS[index][0]
 
 
 def _history():
@@ -71,169 +71,24 @@ def _historical_highlights(campaigns):
     }
 
 
-def _features(vectors, index):
-    return np.concatenate([vectors[index], [float(index + 1)]])
-
-
-def _new_regression_model():
-    return RandomForestRegressor(
-        n_estimators=200,
-        max_depth=4,
-        min_samples_leaf=1,
-        random_state=42,
-    )
-
-
-def _new_classification_model():
-    return Pipeline([
-        ('scaler', StandardScaler()),
-        ('classifier', LogisticRegression(
-            max_iter=1000,
-            class_weight='balanced',
-            random_state=42,
-        )),
-    ])
-
-
-def _evaluation_maturity(rf_count):
-    if rf_count <= 0:
-        return 'NON_DISPONIBLE', 'Non disponible'
-    if rf_count <= 2:
-        return 'EXPLORATOIRE', 'Exploratoire'
-    if rf_count <= 5:
-        return 'INTERMEDIAIRE', 'Intermédiaire'
-    return 'RENFORCEE', 'Renforcée'
-
-
-def _rolling_evaluation(vectors):
-    """Backtesting walk-forward : chaque campagne est prédite sans voir son futur."""
-    label_by_code = dict(FORECAST_LABELS)
-    rf_actual_totals = []
-    rf_predicted_totals = []
-    rf_actual_vectors = []
-    rf_predicted_vectors = []
-    logistic_actual = []
-    logistic_predicted = []
-    last_rf_backtest = None
-    last_classification_backtest = None
-
-    # C1->C2 constitue le premier apprentissage ; C3 est donc le premier vrai test.
-    for target_index in range(2, len(vectors)):
-        x_train = []
-        y_reg_train = []
-        y_cls_train = []
-        for source_index in range(0, target_index - 1):
-            x_train.append(_features(vectors, source_index))
-            y_reg_train.append(vectors[source_index + 1])
-            y_cls_train.append(_dominant_code(vectors[source_index + 1]))
-
-        if not x_train:
-            continue
-
-        test_features = _features(vectors, target_index - 1)
-        actual_vector = vectors[target_index]
-
-        rf = _new_regression_model()
-        rf.fit(np.asarray(x_train), np.asarray(y_reg_train))
-        rf_prediction = np.maximum(0, np.rint(rf.predict([test_features])[0])).astype(int)
-
-        actual_total = int(np.sum(actual_vector))
-        predicted_total = int(np.sum(rf_prediction))
-        absolute_error = abs(actual_total - predicted_total)
-        rf_actual_vectors.append(actual_vector)
-        rf_predicted_vectors.append(rf_prediction)
-        rf_actual_totals.append(float(actual_total))
-        rf_predicted_totals.append(float(predicted_total))
-        last_rf_backtest = {
-            'campaign_number': target_index + 1,
-            'predicted_total': predicted_total,
-            'actual_total': actual_total,
-            'absolute_error': absolute_error,
-        }
-
-        valid_rows = [
-            (features, label)
-            for features, label in zip(x_train, y_cls_train)
-            if label is not None
-        ]
-        labels = [row[1] for row in valid_rows]
-        actual_class = _dominant_code(actual_vector)
-        if actual_class is not None and len(set(labels)) >= 2:
-            classifier = _new_classification_model()
-            classifier.fit(
-                np.asarray([row[0] for row in valid_rows]),
-                np.asarray(labels),
-            )
-            predicted_class = str(classifier.predict([test_features])[0])
-            logistic_predicted.append(predicted_class)
-            logistic_actual.append(actual_class)
-            last_classification_backtest = {
-                'campaign_number': target_index + 1,
-                'predicted_type': label_by_code.get(predicted_class, predicted_class),
-                'actual_type': label_by_code.get(actual_class, actual_class),
-                'correct': predicted_class == actual_class,
-            }
-
-    rf_count = len(rf_actual_totals)
-    maturity_code, maturity_label = _evaluation_maturity(rf_count)
-    result = {
-        'evaluation_method': 'Validation chronologique walk-forward',
-        'evaluation_maturity': maturity_code,
-        'evaluation_maturity_label': maturity_label,
-        'rf_evaluation_count': rf_count,
-        'rf_mae_total': None,
-        'rf_rmse_total': None,
-        'rf_mae_by_type': None,
-        'last_rf_backtest': last_rf_backtest,
-        'classification_evaluation_count': len(logistic_actual),
-        'classification_accuracy': None,
-        'classification_f1_macro': None,
-        'last_classification_backtest': last_classification_backtest,
-    }
-
-    if rf_actual_totals:
-        result['rf_mae_total'] = round(
-            float(mean_absolute_error(rf_actual_totals, rf_predicted_totals)), 2
-        )
-        result['rf_rmse_total'] = round(
-            float(np.sqrt(mean_squared_error(rf_actual_totals, rf_predicted_totals))), 2
-        )
-        actual_matrix = np.asarray(rf_actual_vectors)
-        predicted_matrix = np.asarray(rf_predicted_vectors)
-        per_type = np.mean(np.abs(actual_matrix - predicted_matrix), axis=0)
-        result['rf_mae_by_type'] = [
-            {'code': code, 'label': label, 'mae': round(float(value), 2)}
-            for (code, label), value in zip(FORECAST_LABELS, per_type)
-        ]
-
-    if logistic_actual:
-        result['classification_accuracy'] = round(
-            float(accuracy_score(logistic_actual, logistic_predicted)) * 100, 1
-        )
-        result['classification_f1_macro'] = round(
-            float(f1_score(
-                logistic_actual,
-                logistic_predicted,
-                average='macro',
-                zero_division=0,
-            )) * 100,
-            1,
-        )
-
-    return result
-
-
 def campaign_forecast():
-    """Prévoit la prochaine campagne sans intervenir dans la détection métier.
+    """Prévoit la prochaine campagne avec deux modèles complémentaires.
 
-    Random Forest estime les volumes par type. La régression logistique estime le
-    type dominant. Le moteur déterministe SMI/SICOM/SIBO reste l'unique source de
-    vérité après import.
+    Random Forest = régression du nombre d'anomalies par type.
+    Régression logistique = classification du type d'anomalie dominant.
+
+    Le moteur déterministe reste l'unique source de vérité après import. Les
+    modèles n'interviennent qu'avant la campagne suivante et ne créent/modifient
+    aucune anomalie.
+
+    Pour la démonstration BAM Supervise, la prévision démarre à partir de trois
+    campagnes terminées. Avec seulement trois campagnes, le résultat est donc une
+    estimation exploratoire : il devient progressivement plus robuste lorsque
+    l'historique s'allonge.
     """
     campaigns = _history()
     vectors = [_campaign_vector(campaign) for campaign in campaigns]
     highlights = _historical_highlights(campaigns)
-    evaluation = _rolling_evaluation(vectors)
     base = {
         'ready': False,
         'campaign_count': len(campaigns),
@@ -247,7 +102,6 @@ def campaign_forecast():
         'classification_dominant_type': None,
         'forecast_maturity': 'EXPLORATOIRE' if len(campaigns) < 6 else 'RENFORCEE',
         **highlights,
-        **evaluation,
     }
 
     if len(campaigns) < MIN_CAMPAIGNS_FOR_FORECAST:
@@ -257,26 +111,38 @@ def campaign_forecast():
     y_regression = []
     y_classification = []
     for index in range(len(vectors) - 1):
-        features = _features(vectors, index)
+        features = np.concatenate([vectors[index], [float(index + 1)]])
         x.append(features)
         y_regression.append(vectors[index + 1])
         y_classification.append(_dominant_code(vectors[index + 1]))
 
     x_array = np.asarray(x)
     y_regression_array = np.asarray(y_regression)
-    regression_model = _new_regression_model()
+
+    regression_model = RandomForestRegressor(
+        n_estimators=200,
+        max_depth=4,
+        min_samples_leaf=1,
+        random_state=42,
+    )
     regression_model.fit(x_array, y_regression_array)
 
-    next_features = _features(vectors, len(vectors) - 1)
-    predicted = np.maximum(
-        0,
-        np.rint(regression_model.predict([next_features])[0]),
-    ).astype(int)
+    next_index = float(len(vectors))
+    next_features = np.concatenate([vectors[-1], [next_index]])
+    raw_prediction = regression_model.predict([next_features])[0]
+    predicted = np.maximum(0, np.rint(raw_prediction)).astype(int)
 
-    # La fourchette vient d'abord de l'erreur réellement observée en backtesting.
-    backtest_mae = evaluation.get('rf_mae_total')
-    margin = max(1, int(round(backtest_mae))) if backtest_mae is not None else 1
+    fitted = regression_model.predict(x_array)
+    mae_total = float(
+        np.mean(
+            np.abs(
+                np.sum(fitted, axis=1)
+                - np.sum(y_regression_array, axis=1)
+            )
+        )
+    )
     predicted_total = int(predicted.sum())
+    margin = max(1, int(round(mae_total)))
 
     distribution = []
     for (code, label), value in zip(FORECAST_LABELS, predicted):
@@ -285,6 +151,7 @@ def campaign_forecast():
         distribution.append({'code': code, 'label': label, 'count': value, 'percent': pct})
 
     rf_dominant = max(distribution, key=lambda row: row['count']) if distribution else None
+
     label_by_code = dict(FORECAST_LABELS)
     valid_classification_rows = [
         (features, label)
@@ -300,7 +167,14 @@ def campaign_forecast():
     if len(set(classification_labels)) >= 2:
         x_classification = np.asarray([row[0] for row in valid_classification_rows])
         y_classification_array = np.asarray(classification_labels)
-        classification_model = _new_classification_model()
+        classification_model = Pipeline([
+            ('scaler', StandardScaler()),
+            ('classifier', LogisticRegression(
+                max_iter=1000,
+                class_weight='balanced',
+                random_state=42,
+            )),
+        ])
         classification_model.fit(x_classification, y_classification_array)
         probabilities = classification_model.predict_proba([next_features])[0]
         classes = classification_model.named_steps['classifier'].classes_
@@ -355,4 +229,5 @@ def campaign_forecast():
         'trend': trend,
         'training_pairs': len(x),
         'classification_training_pairs': len(valid_classification_rows),
+        'mae_total': round(mae_total, 2),
     }
