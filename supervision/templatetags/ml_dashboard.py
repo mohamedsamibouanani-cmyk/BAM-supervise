@@ -12,9 +12,6 @@ def ml_dashboard_card():
     status = training_status()
     model = status['active_model']
 
-    # Si l'historique existant est déjà suffisant, le tableau de bord déclenche le
-    # premier entraînement immédiatement. Cela évite d'attendre une nouvelle
-    # validation uniquement pour réveiller le signal post_save.
     if model is None and status['ready']:
         model = safe_maybe_retrain_model()
         status = training_status()
@@ -26,6 +23,8 @@ def ml_dashboard_card():
         'ml_model': model,
         'ml_ready': status['ready'],
         'ml_examples': status['eligible_examples'],
+        'ml_trainable_examples': status['trainable_examples'],
+        'ml_excluded_examples': status['excluded_examples'],
         'ml_minimum_examples': status['minimum_examples'],
         'ml_motif_classes': status['motif_classes'],
         'ml_trainable_classes': status['trainable_classes'],
