@@ -1,23 +1,9 @@
-from django.db import transaction
-from django.db.models.signals import post_save
-from django.dispatch import receiver
+"""Signaux applicatifs BAM Supervise.
 
-from .models import Anomalie, ExempleApprentissage
-from .services.ml_inference import ensure_ml_predictions
-from .services.ml_training import safe_maybe_retrain_model
+Le Machine Learning n'intervient plus dans le diagnostic ni dans la validation
+d'une anomalie individuelle. Il est désormais réservé à la prévision des
+campagnes futures à partir de l'historique agrégé.
 
-
-@receiver(post_save, sender=ExempleApprentissage)
-def retrain_after_learning_example(sender, instance, created, **kwargs):
-    if not created or not instance.eligible:
-        return
-    # Le callback s'exécute seulement après validation définitive de la transaction.
-    transaction.on_commit(safe_maybe_retrain_model)
-
-
-@receiver(post_save, sender=Anomalie)
-def add_ml_support_after_analysis(sender, instance, **kwargs):
-    """Complète le diagnostic déterministe par l'aide ML une fois l'analyse terminée."""
-    if instance.statut != Anomalie.Statut.ANALYSEE:
-        return
-    transaction.on_commit(lambda: ensure_ml_predictions(instance))
+Ce module est volontairement sans signal ML afin d'éviter tout entraînement ou
+toute prédiction automatique lors de la création/validation d'un dossier.
+"""
