@@ -34,7 +34,7 @@
 
       <div class="ml-dashboard-grid">
         <div class="ml-dashboard-stat"><span>Décisions apprises</span><strong>{{ ml_model.nb_exemples }}</strong><small>validations humaines utilisées</small></div>
-        <div class="ml-dashboard-stat"><span>Motifs appris</span><strong>{{ ml_trainable_classes }}</strong><small>classes disposant de données suffisantes</small></div>
+        <div class="ml-dashboard-stat"><span>Motifs appris</span><strong>{{ ml_trainable_classes }}</strong><small>motifs réellement validés par le superviseur</small></div>
         <div class="ml-dashboard-stat"><span>Suggestions ML produites</span><strong>{{ ml_prediction_count }}</strong><small>depuis les campagnes analysées</small></div>
         <div class="ml-dashboard-stat"><span>Dernier entraînement</span><strong>{{ ml_model.entraine_le|date:'d/m/Y' }}</strong><small>{{ ml_model.entraine_le|date:'H:i' }}</small></div>
       </div>
@@ -48,12 +48,12 @@
         <div class="ml-dashboard-orb"><i class="bi bi-diagram-3"></i></div>
         <div>
           <h3>Le modèle se construit avec vos validations</h3>
-          <p>{{ ml_examples }} décision{{ ml_examples|pluralize }} éligible{{ ml_examples|pluralize }} enregistrée{{ ml_examples|pluralize }} sur un minimum de {{ ml_minimum_examples }}. Il faut également au moins deux motifs suffisamment représentés.</p>
+          <p>{{ ml_examples }} décision{{ ml_examples|pluralize }} éligible{{ ml_examples|pluralize }} enregistrée{{ ml_examples|pluralize }} sur un minimum de {{ ml_minimum_examples }}. Il faut également au moins deux motifs différents réellement validés.</p>
         </div>
       </div>
       <div class="ml-dashboard-grid">
         <div class="ml-dashboard-stat"><span>Exemples disponibles</span><strong>{{ ml_examples }} / {{ ml_minimum_examples }}</strong><small>aucun pourcentage artificiel</small></div>
-        <div class="ml-dashboard-stat"><span>Motifs observés</span><strong>{{ ml_motif_classes }}</strong><small>{{ ml_trainable_classes }} suffisamment représenté{{ ml_trainable_classes|pluralize }}</small></div>
+        <div class="ml-dashboard-stat"><span>Motifs observés</span><strong>{{ ml_motif_classes }}</strong><small>{{ ml_trainable_classes }} utilisable{{ ml_trainable_classes|pluralize }} pour l’apprentissage</small></div>
         <div class="ml-dashboard-stat"><span>Modèles entraînés</span><strong>{{ ml_model_count }}</strong><small>historique des versions</small></div>
         <div class="ml-dashboard-stat"><span>Décision</span><strong>Humaine</strong><small>toujours obligatoire</small></div>
       </div>
