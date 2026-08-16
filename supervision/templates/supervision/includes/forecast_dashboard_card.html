@@ -83,70 +83,9 @@
         <div><strong>Lecture superviseur :</strong> concentrez l’attention sur <strong>{{ forecast.dominant_type|default:'les anomalies récurrentes' }}</strong>{% if forecast.historical_dominant_attribute %}, notamment <strong>{{ forecast.historical_dominant_attribute }}</strong>{% endif %}. La prévision prépare la supervision ; après import, le moteur déterministe reste la source de vérité.</div>
       </div>
 
-      <div class="forecast-evaluation-summary">
-        <div class="forecast-evaluation-head">
-          <div>
-            <span class="forecast-label">Évaluation mesurée</span>
-            <strong>Performance observée sur des campagnes déjà terminées</strong>
-          </div>
-          <span class="forecast-evaluation-badge is-{{ forecast.evaluation_maturity|lower }}">{{ forecast.evaluation_maturity_label }}</span>
-        </div>
-        <div class="forecast-evaluation-grid">
-          <div class="forecast-evaluation-card">
-            <span>Erreur moyenne · Random Forest</span>
-            <strong>{% if forecast.rf_mae_total is not None %}{{ forecast.rf_mae_total }}{% else %}—{% endif %}</strong>
-            <small>{% if forecast.rf_mae_total is not None %}MAE en nombre d’anomalies{% else %}Pas encore de campagne testable{% endif %}</small>
-          </div>
-          <div class="forecast-evaluation-card">
-            <span>Dernier test réel</span>
-            {% if forecast.last_rf_backtest %}
-              <strong>{{ forecast.last_rf_backtest.predicted_total }} prévu / {{ forecast.last_rf_backtest.actual_total }} réel</strong>
-              <small>Campagne {{ forecast.last_rf_backtest.campaign_number }} · erreur {{ forecast.last_rf_backtest.absolute_error }}</small>
-            {% else %}
-              <strong>—</strong><small>Disponible après un premier backtest</small>
-            {% endif %}
-          </div>
-          <div class="forecast-evaluation-card">
-            <span>Type dominant · Logistique</span>
-            <strong>{% if forecast.classification_accuracy is not None %}{{ forecast.classification_accuracy }} %{% else %}En attente{% endif %}</strong>
-            <small>{% if forecast.classification_accuracy is not None %}Accuracy · F1 {{ forecast.classification_f1_macro }} %{% else %}Historique de classes encore insuffisant{% endif %}</small>
-          </div>
-          <div class="forecast-evaluation-card">
-            <span>Méthode</span>
-            <strong>Walk-forward</strong>
-            <small>{{ forecast.rf_evaluation_count }} campagne(s) hors entraînement évaluée(s)</small>
-          </div>
-        </div>
-      </div>
-
       <details class="forecast-technical-details">
-        <summary><i class="bi bi-cpu"></i> Voir le détail des modèles et des métriques</summary>
+        <summary><i class="bi bi-cpu"></i> Voir le détail des modèles</summary>
         <div class="forecast-technical-grid">
-          <div>
-            <span>Random Forest · MAE</span>
-            <strong>{% if forecast.rf_mae_total is not None %}{{ forecast.rf_mae_total }} anomalie(s){% else %}Non mesurable{% endif %}</strong>
-            <small>Erreur absolue moyenne sur le nombre total d’anomalies.</small>
-          </div>
-          <div>
-            <span>Random Forest · RMSE</span>
-            <strong>{% if forecast.rf_rmse_total is not None %}{{ forecast.rf_rmse_total }}{% else %}Non mesurable{% endif %}</strong>
-            <small>Pénalise davantage les écarts importants.</small>
-          </div>
-          <div>
-            <span>Régression logistique · Accuracy</span>
-            <strong>{% if forecast.classification_accuracy is not None %}{{ forecast.classification_accuracy }} %{% else %}Non mesurable{% endif %}</strong>
-            <small>Part des types dominants correctement prédits.</small>
-          </div>
-          <div>
-            <span>Régression logistique · F1 macro</span>
-            <strong>{% if forecast.classification_f1_macro is not None %}{{ forecast.classification_f1_macro }} %{% else %}Non mesurable{% endif %}</strong>
-            <small>Équilibre la performance entre les différents types dominants.</small>
-          </div>
-          <div>
-            <span>Validation</span>
-            <strong>{{ forecast.evaluation_method }}</strong>
-            <small>Aucune campagne future n’est utilisée pour prédire une campagne passée.</small>
-          </div>
           <div>
             <span>Modèle volume</span>
             <strong>Random Forest Regressor</strong>
@@ -158,37 +97,11 @@
             <small>{% if forecast.classification_ready %}Type prédit : {{ forecast.classification_dominant_type }} · {{ forecast.classification_probability }} %.{% else %}Historique trop homogène pour produire une classification distincte.{% endif %}</small>
           </div>
           <div>
-            <span>Maturité de la prévision</span>
+            <span>Maturité</span>
             <strong>{% if forecast.forecast_maturity == 'EXPLORATOIRE' %}Exploratoire{% else %}Renforcée{% endif %}</strong>
             <small>{{ forecast.training_pairs }} transition(s) campagne t → t+1 utilisée(s).</small>
           </div>
         </div>
-
-        {% if forecast.last_classification_backtest %}
-          <div class="forecast-last-check">
-            <i class="bi bi-check2-circle"></i>
-            <div>
-              <span>Dernier backtest logistique · campagne {{ forecast.last_classification_backtest.campaign_number }}</span>
-              <strong>Prévu : {{ forecast.last_classification_backtest.predicted_type }} · Réel : {{ forecast.last_classification_backtest.actual_type }}</strong>
-            </div>
-          </div>
-        {% endif %}
-
-        {% if forecast.rf_mae_by_type %}
-        <div class="forecast-breakdown mt-3">
-          <div class="forecast-section-head">
-            <div><span class="forecast-label">Évaluation détaillée</span><strong>MAE Random Forest par type</strong></div>
-          </div>
-          <div class="forecast-distribution-list">
-            {% for row in forecast.rf_mae_by_type %}
-              <div class="forecast-distribution-row">
-                <div class="forecast-distribution-copy"><span>{{ row.label }}</span><strong>{{ row.mae }}</strong></div>
-                <small>erreur moyenne</small>
-              </div>
-            {% endfor %}
-          </div>
-        </div>
-        {% endif %}
       </details>
     {% else %}
       <div class="forecast-empty-state">
