@@ -27,6 +27,15 @@
     const adjustmentHint = document.getElementById('adjustmentHint');
     const submitButton = document.getElementById('submitDecision');
     const submitLabel = document.getElementById('submitDecisionLabel');
+    const learningCauseSelect = document.getElementById('cause_apprentissage');
+    const newLearningCause = document.getElementById('nouvelle_cause_apprentissage');
+
+    // La collecte de la cause réelle était auparavant repliée et passait facilement
+    // inaperçue. On l'ouvre par défaut pour rendre explicite ce qui alimente le ML.
+    if (learningCauseSelect) {
+      const learningDetails = learningCauseSelect.closest('details');
+      if (learningDetails) learningDetails.open = true;
+    }
 
     if (!adjustmentPanel || !submitButton || !submitLabel) return;
     if (!isService && (!selectionSummary || !countText || !targetsOutput)) return;
@@ -50,9 +59,7 @@
     function isFlexibleAttributeDifference() {
       if (!isAttribute) return false;
       const primary = firstMetadata();
-      return Boolean(
-        primary && !primary.item.systemId && primary.item.targets.length === 0
-      );
+      return Boolean(primary && !primary.item.systemId && primary.item.targets.length === 0);
     }
 
     function selectedDecision() {
@@ -223,6 +230,20 @@
         renderSelection();
       });
     }
+
+    // Avant validation, on explique explicitement qu'une décision sans cause réelle
+    // reste valide métier mais ne peut pas entraîner le ML. L'utilisateur garde le choix.
+    form.addEventListener('submit', function (event) {
+      if (isService || !learningCauseSelect) return;
+      const hasKnownCause = Boolean(learningCauseSelect.value);
+      const hasNewCause = Boolean(newLearningCause && newLearningCause.value.trim());
+      if (!hasKnownCause && !hasNewCause) {
+        const proceed = window.confirm(
+          'Aucune cause réelle n’est renseignée. Cette validation sera enregistrée, mais elle n’alimentera pas le Machine Learning. Continuer ?'
+        );
+        if (!proceed) event.preventDefault();
+      }
+    });
 
     renderDecision();
   }
