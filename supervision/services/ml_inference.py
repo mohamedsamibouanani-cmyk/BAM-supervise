@@ -9,7 +9,7 @@ from django.db.models import Max
 
 from supervision.models import Anomalie, ModeleML, Motif, PredictionMotif
 
-from .ml_policy import NON_CAUSAL_MOTIF_CODES, confidence_band
+from .ml_policy import MIN_CAUSE_SUPPORT, NON_CAUSAL_MOTIF_CODES, confidence_band
 
 
 logger = logging.getLogger(__name__)
@@ -23,28 +23,22 @@ def _feature_dict(anomaly):
         'attribut': anomaly.attribut.code_attribut if anomaly.attribut_id else '',
         'systeme_ecart': anomaly.systeme_ecart.code_systeme if anomaly.systeme_ecart_id else '',
         'nb_valeurs_vides': sum(1 for d in anomaly.details.all() if not d.objet_present),
-        'nb_formats_invalides': sum(
-            1 for d in anomaly.details.all() if d.format_source_conforme is False
-        ),
+        'nb_formats_invalides': sum(1 for d in anomaly.details.all() if d.format_source_conforme is False),
     }
 
 
 def _motif_is_compatible(anomaly, motif):
-    """N'autorise que de vraies causes compatibles avec l'anomalie courante."""
     code = str(motif.code_motif or '').strip().upper()
     if code in NON_CAUSAL_MOTIF_CODES:
         return False
-
     motif_level = str(motif.niveau_applicable or '').strip().upper()
     anomaly_level = str(anomaly.niveau or '').strip().upper()
     if motif_level and motif_level != anomaly_level:
         return False
-
     return True
 
 
 def _existing_non_ml_motif_codes(anomaly):
-    """Évite qu'une règle et le ML répètent exactement la même cause."""
     return set(
         anomaly.predictions.exclude(source_prediction=PredictionMotif.Source.ML)
         .values_list('motif__code_motif', flat=True)
@@ -61,12 +55,7 @@ def _class_support(model, code_motif):
 
 
 def ensure_ml_predictions(anomaly, max_suggestions=2):
-    """Ajoute des suggestions causales du modèle actif.
-
-    Le moteur déterministe constate l'écart. Le ML propose uniquement une cause
-    possible avec sa vraie probabilité. Il ne choisit jamais le système à corriger
-    et ne duplique pas une cause déjà fournie par une règle métier.
-    """
+    """Ajoute uniquement des causes ML compatibles et suffisamment étayées."""
     if anomaly.niveau == Anomalie.Niveau.SERVICE:
         return []
 
@@ -90,6 +79,7 @@ def ensure_ml_predictions(anomaly, max_suggestions=2):
         p for p in existing
         if _motif_is_compatible(anomaly, p.motif)
         and p.motif.code_motif not in deterministic_codes
+        and _class_support(model, p.motif.code_motif) >= MIN_CAUSE_SUPPORT
     ]
     incompatible_ids = [p.pk for p in existing if p not in compatible_existing]
     if incompatible_ids:
@@ -111,11 +101,7 @@ def ensure_ml_predictions(anomaly, max_suggestions=2):
         features = _feature_dict(anomaly)
         probabilities = pipeline.predict_proba([features])[0]
         classes = pipeline.classes_
-        ordered = sorted(
-            zip(classes, probabilities),
-            key=lambda item: item[1],
-            reverse=True,
-        )
+        ordered = sorted(zip(classes, probabilities), key=lambda item: item[1], reverse=True)
 
         last_rank = anomaly.predictions.aggregate(value=Max('rang'))['value'] or 0
         created = []
@@ -125,14 +111,15 @@ def ensure_ml_predictions(anomaly, max_suggestions=2):
             code_motif = str(code_motif)
             if code_motif in deterministic_codes:
                 continue
-            motif = Motif.objects.filter(
-                code_motif=code_motif, actif=True
-            ).first()
+            motif = Motif.objects.filter(code_motif=code_motif, actif=True).first()
             if motif is None or not _motif_is_compatible(anomaly, motif):
                 continue
 
-            probability_value = float(probability)
             support = _class_support(model, code_motif)
+            if support < MIN_CAUSE_SUPPORT:
+                continue
+
+            probability_value = float(probability)
             last_rank += 1
             created.append(
                 PredictionMotif.objects.create(
@@ -153,13 +140,11 @@ def ensure_ml_predictions(anomaly, max_suggestions=2):
                         'version_modele': model.version_modele,
                         'niveau_confiance': confidence_band(probability_value),
                         'nb_exemples_cause': support,
+                        'support_minimum_requis': MIN_CAUSE_SUPPORT,
                     },
                 )
             )
         return created
     except Exception:
-        logger.exception(
-            'Impossible de produire les suggestions ML pour l’anomalie #%s.',
-            anomaly.pk,
-        )
+        logger.exception('Impossible de produire les suggestions ML pour l’anomalie #%s.', anomaly.pk)
         return []
