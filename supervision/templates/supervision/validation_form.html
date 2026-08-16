@@ -175,7 +175,7 @@
           </select>
           <small class="d-block mt-1">Une cause doit être confirmée au moins deux fois et le ML doit disposer d’au moins six exemples causaux avant entraînement.</small>
 
-          {% if not (anomaly.niveau == 'ATTRIBUT' and anomaly.type_ecart == 'DIFFERENT') %}
+          {% if anomaly.niveau != 'ATTRIBUT' or anomaly.type_ecart != 'DIFFERENT' %}
           <div class="mt-3">
             <label class="form-label" for="nouvelle_cause_apprentissage">Autre cause confirmée</label>
             <input class="form-control" id="nouvelle_cause_apprentissage" name="nouvelle_cause_apprentissage" maxlength="255" value="{{ new_learning_cause_label }}" placeholder="Saisissez une cause uniquement si elle est réellement connue">
