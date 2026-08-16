@@ -72,17 +72,20 @@ class CampaignForecastingTests(TestCase):
         self.assertEqual(result['campaign_count'], 3)
         self.assertEqual(result['minimum_campaigns'], MIN_CAMPAIGNS_FOR_FORECAST)
         self.assertGreater(result['remaining_campaigns'], 0)
+        self.assertEqual(result['method'], 'Random Forest + Régression logistique')
         self.assertEqual(ModeleML.objects.count(), 0)
         self.assertEqual(PredictionMotif.objects.count(), 0)
 
-    def test_iteration_2_six_campagnes_produisent_une_prevision_structuree(self):
+    def test_iteration_2_six_campagnes_produisent_deux_modeles_complementaires(self):
+        # Les dominantes changent volontairement pour rendre la classification
+        # logistique réellement entraînable sur au moins deux classes.
         patterns = [
-            (2, 1, 1, 2),
-            (1, 1, 2, 3),
-            (1, 0, 2, 4),
-            (0, 1, 1, 3),
-            (1, 1, 2, 2),
-            (0, 1, 1, 2),
+            (4, 1, 1, 0),  # envoi dominant
+            (1, 1, 1, 5),  # attribut différent dominant
+            (5, 1, 1, 0),  # envoi dominant
+            (1, 1, 1, 4),  # attribut différent dominant
+            (4, 0, 1, 0),  # envoi dominant
+            (1, 0, 1, 5),  # attribut différent dominant
         ]
         for index, values in enumerate(patterns, start=1):
             self._campaign(index, *values)
@@ -99,6 +102,15 @@ class CampaignForecastingTests(TestCase):
         )
         self.assertIn(result['trend'], {'HAUSSE', 'BAISSE', 'STABLE'})
         self.assertEqual(result['historical_dominant_attribute'], 'TELEPHONE_NOTIFICATION')
+        self.assertTrue(result['classification_ready'])
+        self.assertIsNotNone(result['classification_probability'])
+        self.assertGreaterEqual(result['classification_probability'], 0)
+        self.assertLessEqual(result['classification_probability'], 100)
+        self.assertIn(
+            result['classification_dominant_type'],
+            {'Envoi absent', 'Valeur d’attribut différente'},
+        )
+        self.assertGreaterEqual(len(result['classification_distribution']), 2)
 
     def test_iteration_3_le_ml_previsionnel_ne_touche_jamais_au_workflow_anomalie(self):
         for index in range(1, 7):
@@ -112,3 +124,14 @@ class CampaignForecastingTests(TestCase):
         self.assertEqual(ModeleML.objects.count(), 0)
         self.assertEqual(PredictionMotif.objects.count(), 0)
         self.assertEqual(ExempleApprentissage.objects.count(), 0)
+
+    def test_iteration_4_logistique_reste_optionnelle_si_une_seule_classe_domine(self):
+        for index in range(1, 7):
+            self._campaign(index, envoi=0, service=0, attr_absent=1, attr_diff=4)
+
+        result = campaign_forecast()
+
+        self.assertTrue(result['ready'])
+        self.assertFalse(result['classification_ready'])
+        self.assertIsNone(result['classification_probability'])
+        self.assertEqual(result['dominant_type'], "Valeur d’attribut différente")
