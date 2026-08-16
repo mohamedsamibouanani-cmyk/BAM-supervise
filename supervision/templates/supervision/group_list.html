@@ -1,0 +1,51 @@
+{% extends 'supervision/base.html' %}
+{% block title %}Collaborateurs · BAM Supervise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-eyebrow"><i class="bi bi-people"></i> Affectation des notifications</div>
+    <h1 class="page-title">Collaborateurs par système</h1>
+    <p class="page-subtitle">Les collaborateurs ne disposent pas de compte dans BAM Supervise. Leurs adresses e-mail servent uniquement à recevoir les notifications du système concerné après validation du motif par le superviseur.</p>
+  </div>
+</div>
+
+<div class="bam-section-note mb-3">
+  <i class="bi bi-info-circle-fill"></i>
+  <div><strong>Règle de routage :</strong> motif validé + système à corriger → groupe responsable → adresses e-mail enregistrées pour ce groupe.</div>
+</div>
+
+<div class="row g-3">
+{% for g in groups %}
+  <div class="col-xl-4 col-lg-6">
+    <section class="panel h-100 contact-system-card">
+      <div class="panel-header">
+        <div>
+          <div class="d-flex align-items-center gap-2 mb-1"><span class="system-badge">{{ g.systeme.code_systeme }}</span></div>
+          <h2 class="panel-title mt-2">{{ g.nom_groupe }}</h2>
+        </div>
+        <a class="btn btn-sm btn-outline-primary" href="{% url 'contact_add' g.pk %}"><i class="bi bi-person-plus me-1"></i> Ajouter</a>
+      </div>
+      <div class="panel-body">
+        {% if g.description %}<p class="text-secondary" style="font-size:11px;line-height:1.55">{{ g.description }}</p>{% endif %}
+        {% if g.email_collectif %}<div class="p-3 rounded-3 bg-light mb-3"><div class="evidence-label">Adresse collective</div><span class="contact-address"><i class="bi bi-envelope"></i>{{ g.email_collectif }}</span></div>{% endif %}
+        <div class="d-flex align-items-center justify-content-between mb-2"><span class="evidence-label mb-0">Collaborateurs</span><span class="system-badge">{{ g.contacts.count }} contact{{ g.contacts.count|pluralize }}</span></div>
+        <div class="quick-list">
+          {% for c in g.contacts.all %}
+            <div class="quick-row">
+              <div class="user-avatar" style="background:#eef3ff;color:#244b9b">{{ c.nom_complet|slice:':1'|upper }}</div>
+              <div class="quick-copy">
+                <strong>{{ c.nom_complet }}</strong>
+                <small><span class="contact-address"><i class="bi bi-envelope"></i>{{ c.email }}</span>{% if c.fonction %} · {{ c.fonction }}{% endif %}</small>
+              </div>
+              <a class="icon-btn" href="{% url 'contact_edit' c.pk %}" title="Modifier les coordonnées"><i class="bi bi-pencil-square"></i></a>
+            </div>
+          {% empty %}<div class="empty-state py-4"><div class="empty-icon"><i class="bi bi-person-plus"></i></div><h3>Aucun collaborateur</h3><p>Ajoutez les adresses e-mail de ce système pour permettre la notification automatique.</p></div>{% endfor %}
+        </div>
+      </div>
+    </section>
+  </div>
+{% empty %}
+  <div class="col-12"><div class="panel"><div class="empty-state"><div class="empty-icon"><i class="bi bi-people"></i></div><h3>Aucun groupe configuré</h3><p>Initialisez les référentiels SMI, SICOM et SIBO avant de gérer les contacts.</p></div></div></div>
+{% endfor %}
+</div>
+{% endblock %}

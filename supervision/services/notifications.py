@@ -1,0 +1,862 @@
+from django.conf import settings
+from django.core.mail import EmailMessage
+from django.db import transaction
+from django.utils import timezone
+
+from supervision.models import (
+    Anomalie, GroupeResponsable, HistoriqueAnomalie, Notification,
+    NotificationDestinataire, RegleAffectation, Systeme, ValidationMotif,
+)
+from supervision.services.analysis import prediction_target_codes
+from supervision.services.email_config import (
+    EmailConfigurationError,
+    validate_real_email_config,
+)
+from supervision.services.security import decrypt_sensitive
+
+
+class RoutingError(ValueError):
+    pass
+
+
+def _ensure_real_delivery_backend():
+    try:
+        validate_real_email_config()
+    except EmailConfigurationError as exc:
+        raise RoutingError(str(exc)) from exc
+
+
+def _delivery_error_message(exc):
+    raw = str(exc).strip()
+    lowered = raw.lower()
+    if '525' in lowered and 'unauthorized ip address' in lowered:
+        return (
+            'Brevo a refusé l’envoi : l’adresse IP sortante de BAM Supervise n’est pas '
+            'autorisée pour la clé SMTP (erreur 525). Autorisez cette IP dans Brevo '
+            'Paramètres > Sécurité > IP autorisées, puis relancez la notification.'
+        )
+    return raw or exc.__class__.__name__
+
+
+def _active_validations(validation):
+    if not validation.est_finale:
+        return [validation]
+    rows = list(
+        validation.anomalie.validations.filter(est_finale=True)
+        .select_related(
+            'motif_final', 'systeme_a_corriger_final',
+            'prediction_retenue__motif', 'prediction_retenue__systeme_a_corriger_predit',
+            'prediction_retenue__regle__flux__systeme_source',
+            'prediction_retenue__regle__flux__systeme_destination',
+            'prediction_retenue__regle__attribut',
+        )
+        .order_by('version_validation', 'pk')
+    )
+    return rows or [validation]
+
+
+def _validation_target_codes(validation):
+    if validation.decision == ValidationMotif.Decision.ACCEPTE and validation.prediction_retenue_id:
+        return prediction_target_codes(validation.prediction_retenue)
+    if validation.systeme_a_corriger_final_id:
+        return [validation.systeme_a_corriger_final.code_systeme]
+    return []
+
+
+def _target_systems(validation):
+    codes = []
+    for cause in _active_validations(validation):
+        for code in _validation_target_codes(cause):
+            if code not in codes:
+                codes.append(code)
+
+    systems_by_code = {
+        system.code_systeme: system
+        for system in Systeme.objects.filter(code_systeme__in=codes, actif=True)
+    }
+    systems = [systems_by_code[code] for code in codes if code in systems_by_code]
+    if not systems:
+        raise RoutingError(
+            'Aucun système responsable ou source n’a été confirmé par le superviseur. '
+            'Révisez le diagnostic avant d’envoyer une notification.'
+        )
+    return systems
+
+
+def _causes_for_system(validation, system):
+    causes = []
+    for item in _active_validations(validation):
+        if system.code_systeme not in _validation_target_codes(item):
+            continue
+
+        explanation = item.prediction_retenue.explication or {} if item.prediction_retenue_id else {}
+        indices = explanation.get('indices') or []
+        local_indices = [
+            index for index in indices
+            if str(index.get('systeme') or '').strip().upper() == system.code_systeme
+        ]
+        useful_indices = local_indices or indices
+        field = item.motif_final.champ_typique or '-'
+        if useful_indices and useful_indices[0].get('champ'):
+            field = useful_indices[0]['champ']
+        elif explanation.get('attribut_analyse'):
+            field = explanation['attribut_analyse']
+
+        constats = []
+        for index in useful_indices:
+            constat = str(index.get('constat') or '').strip()
+            if constat and constat not in constats:
+                constats.append(constat)
+
+        role = explanation.get('role_diagnostic')
+        causes.append({
+            'validation': item,
+            'motif': item.motif_final,
+            'label': explanation.get('message') or item.motif_final.libelle,
+            'field': field,
+            'constat': ' ; '.join(constats),
+            'role': role,
+            'score': (
+                float(item.prediction_retenue.score_confiance) * 100
+                if item.prediction_retenue_id
+                and role not in {
+                    'MOTIF_NON_IDENTIFIABLE',
+                    'CONSTAT_ATTRIBUT',
+                    'CONSTAT_ATTRIBUT_DIFFERENT',
+                    'CONSTAT_SERVICE',
+                }
+                else None
+            ),
+        })
+    return causes
+
+
+def route_group(validation, system):
+    for cause in _causes_for_system(validation, system):
+        rule = RegleAffectation.objects.filter(
+            systeme_a_corriger=system,
+            motif=cause['motif'],
+            actif=True,
+        ).select_related('groupe').order_by('priorite').first()
+        if rule:
+            return rule.groupe
+
+    fallback = GroupeResponsable.objects.filter(
+        systeme=system,
+        actif=True,
+    ).order_by('id').first()
+    if fallback:
+        return fallback
+    raise RoutingError(f'Aucun groupe responsable configuré pour le système {system.code_systeme}.')
+
+
+def _is_envoi_mandatory_validation(validation):
+    if validation.anomalie.niveau != Anomalie.Niveau.ENVOI:
+        return False
+    for item in _active_validations(validation):
+        if item.motif_final.code_motif == 'CHAMP_OBLIGATOIRE_ENVOI_ABSENT':
+            return True
+        if item.prediction_retenue_id:
+            role = (item.prediction_retenue.explication or {}).get('role_diagnostic')
+            if role == 'CHAMP_OBLIGATOIRE_ABSENT':
+                return True
+    return False
+
+
+def _mandatory_envoi_fields_for_system(validation, system):
+    fields = []
+    seen = set()
+    for item in _active_validations(validation):
+        if system.code_systeme not in _validation_target_codes(item):
+            continue
+        explanation = item.prediction_retenue.explication or {} if item.prediction_retenue_id else {}
+        role = explanation.get('role_diagnostic')
+        if (
+            item.motif_final.code_motif != 'CHAMP_OBLIGATOIRE_ENVOI_ABSENT'
+            and role != 'CHAMP_OBLIGATOIRE_ABSENT'
+        ):
+            continue
+        for index in explanation.get('indices') or []:
+            if str(index.get('systeme') or '').strip().upper() != system.code_systeme:
+                continue
+            field = str(index.get('champ') or explanation.get('attribut_analyse') or '').strip()
+            service = str(index.get('service') or '').strip()
+            key = (field, service)
+            if field and key not in seen:
+                seen.add(key)
+                fields.append({'champ': field, 'service': service})
+        fallback_field = str(explanation.get('attribut_analyse') or '').strip()
+        if fallback_field and not any(row['champ'] == fallback_field for row in fields):
+            fields.append({'champ': fallback_field, 'service': ''})
+    return fields
+
+
+def _build_envoi_mandatory_email(validation, system):
+    anomaly = validation.anomalie
+    observed = anomaly.systeme_ecart.code_systeme if anomaly.systeme_ecart_id else '-'
+    missing = _mandatory_envoi_fields_for_system(validation, system)
+    field_lines = []
+    for item in missing:
+        suffix = f' | service ARTICLE={item["service"]}' if item['service'] else ''
+        field_lines.append(f'- {item["champ"]}{suffix}')
+
+    subject = (
+        f'[BAM Supervise][{system.code_systeme}] CHAMP OBLIGATOIRE À RENSEIGNER - '
+        f'{anomaly.code_envoi}'
+    )
+    body = (
+        f'Bonjour,\n\n'
+        f'Après validation du superviseur, BAM Supervise confirme que l’envoi '
+        f'{anomaly.code_envoi} n’est pas synchronisé dans {observed}.\n\n'
+        f'Motif de non-synchronisation validé : champ obligatoire non rempli.\n'
+        f'Système source à corriger : {system.code_systeme}\n'
+        f'Code envoi : {anomaly.code_envoi}\n\n'
+        f'Champ(s) obligatoire(s) à renseigner dans le système source :\n'
+        + ('\n'.join(field_lines) if field_lines else '- champ obligatoire à vérifier')
+        + '\n\n'
+        f'Merci de renseigner ce ou ces champs dans {system.code_systeme}, puis de '
+        f'valider à nouveau l’envoi {anomaly.code_envoi} afin de relancer sa synchronisation.\n'
+        f'BAM Supervise contrôlera le résultat lors de la prochaine campagne.\n\n'
+        f'Commentaire du superviseur : {validation.commentaire or "-"}\n\n'
+        f'BAM Supervise'
+    )
+    return subject, body
+
+
+def _snapshot_value_text(value):
+    if value is None or value.est_vide:
+        return '—'
+    raw = value.valeur_brute
+    if raw in (None, ''):
+        return '—'
+    if value.attribut.sensible:
+        return decrypt_sensitive(raw)
+    return str(raw).strip() or '—'
+
+
+def _envoi_reentry_lines(anomaly, system):
+    link = anomaly.campagne.imports.select_related('fichier_import').filter(
+        systeme=system
+    ).first()
+    if not link:
+        return []
+    shipment = link.fichier_import.envois.filter(code_envoi=anomaly.code_envoi).first()
+    if not shipment:
+        return []
+
+    lines = [
+        f'NUM_COMMANDE = {shipment.num_commande or "—"}',
+        f'CODE_ENVOI = {shipment.code_envoi}',
+        f'ORG_COMMERCIALE = {shipment.org_commerciale or "—"}',
+        f'DATE_COMMANDE = {shipment.date_commande.isoformat() if shipment.date_commande else "—"}',
+    ]
+
+    for value in shipment.valeurs_attribut.select_related('attribut').order_by('attribut__code_attribut'):
+        lines.append(f'{value.attribut.code_attribut} = {_snapshot_value_text(value)}')
+
+    services = shipment.services.order_by('code_service', 'numero_occurrence')
+    for index, service in enumerate(services, start=1):
+        lines.extend([
+            '',
+            f'SERVICE {index}',
+            f'ARTICLE = {service.code_service}',
+            f'DES_ARTICLE = {service.libelle_service or "—"}',
+        ])
+        for value in service.valeurs_attribut.select_related('attribut').order_by('attribut__code_attribut'):
+            lines.append(f'{value.attribut.code_attribut} = {_snapshot_value_text(value)}')
+    return lines
+
+
+def _build_envoi_retry_email(validation, system):
+    anomaly = validation.anomalie
+    observed = anomaly.systeme_ecart.code_systeme if anomaly.systeme_ecart_id else '-'
+    reentry_lines = _envoi_reentry_lines(anomaly, system)
+    subject = (
+        f'[BAM Supervise][{system.code_systeme}] RESSAISIE ENVOI - {anomaly.code_envoi}'
+    )
+    body = (
+        f'Bonjour,\n\n'
+        f'Après validation du superviseur, BAM Supervise confirme que l’envoi '
+        f'{anomaly.code_envoi} n’est pas synchronisé dans {observed}.\n\n'
+        f'Les champs obligatoires disponibles ont été contrôlés et aucune cause '
+        f'suffisamment identifiable n’explique la non-synchronisation.\n'
+        f'Motif validé : Motif non identifiable\n'
+        f'Système source confirmé : {system.code_systeme}\n\n'
+        f'Merci de ressaisir complètement l’envoi CODE_ENVOI={anomaly.code_envoi} '
+        f'dans {system.code_systeme}, puis de le valider à nouveau afin de relancer '
+        f'la synchronisation.\n\n'
+        f'Champs à ressaisir :\n'
+        + ('\n'.join(reentry_lines) if reentry_lines else '- aucune donnée source disponible')
+        + '\n\n'
+        f'BAM Supervise contrôlera automatiquement le résultat lors de la prochaine campagne : '
+        f'l’anomalie sera marquée résolue si l’envoi apparaît, sinon persistante.\n\n'
+        f'Commentaire du superviseur : {validation.commentaire or "-"}\n\n'
+        f'BAM Supervise'
+    )
+    return subject, body
+
+
+def _service_source_observations(anomaly, target_system):
+    observations = []
+    links = anomaly.campagne.imports.select_related('systeme', 'fichier_import').order_by(
+        'systeme__ordre_comparaison'
+    )
+    for link in links:
+        if link.systeme_id == target_system.pk:
+            continue
+        shipment = link.fichier_import.envois.filter(code_envoi=anomaly.code_envoi).first()
+        if not shipment:
+            continue
+        service = shipment.services.filter(code_service=anomaly.code_service).order_by('numero_occurrence').first()
+        if not service:
+            continue
+        observations.append({
+            'systeme': link.systeme.code_systeme,
+            'article': service.code_service,
+            'des_article': service.libelle_service or '-',
+        })
+    return observations
+
+
+def _build_service_email(validation, system):
+    anomaly = validation.anomalie
+    observations = _service_source_observations(anomaly, system)
+    descriptions = {
+        item['des_article'] for item in observations if item['des_article'] not in ('', '-')
+    }
+    source_lines = [
+        f'- {item["systeme"]} : ARTICLE={item["article"]} | DES_ARTICLE={item["des_article"]}'
+        for item in observations
+    ]
+    if len(descriptions) == 1:
+        des_article = next(iter(descriptions))
+        action = (
+            f'Merci de renseigner/synchroniser ce service dans {system.code_systeme} avec '
+            f'ARTICLE={anomaly.code_service} et DES_ARTICLE={des_article}, puis de vérifier '
+            f'sa prise en compte.'
+        )
+    else:
+        action = (
+            f'Merci de renseigner/synchroniser le service ARTICLE={anomaly.code_service} '
+            f'dans {system.code_systeme}. Les libellés DES_ARTICLE observés sont indiqués '
+            f'ci-dessus ; s’ils diffèrent, vérifiez le libellé métier correct avant saisie.'
+        )
+
+    subject = (
+        f'[BAM Supervise][{system.code_systeme}] SERVICE À RENSEIGNER - {anomaly.code_envoi}'
+    )
+    body = (
+        f'Bonjour,\n\n'
+        f'Après validation du superviseur, BAM Supervise confirme qu’un service '
+        f'n’est pas synchronisé dans votre système.\n\n'
+        f'Code envoi : {anomaly.code_envoi}\n'
+        f'Système où le service manque : {system.code_systeme}\n'
+        f'ARTICLE : {anomaly.code_service or "-"}\n'
+        f'Constat : service absent / non synchronisé\n\n'
+        f'Informations observées dans le ou les systèmes où le service existe :\n'
+        + ('\n'.join(source_lines) if source_lines else '- aucune information source disponible')
+        + '\n\n'
+        + action
+        + '\n\n'
+        f'Aucun motif métier n’est attribué automatiquement au niveau SERVICE.\n'
+        f'La résolution sera contrôlée lors de la prochaine campagne.\n\n'
+        f'Commentaire du superviseur : {validation.commentaire or "-"}\n\n'
+        f'BAM Supervise'
+    )
+    return subject, body
+
+
+def _attribute_observations(anomaly, excluded_system=None):
+    """Read the real source values only while building an email after validation.
+
+    Sensitive values remain encrypted in the database. They are decrypted in memory
+    here so the collaborator receives the exact value that must be corrected or filled.
+    """
+    observations = []
+    if not anomaly.attribut_id:
+        return observations
+
+    links = anomaly.campagne.imports.select_related('systeme', 'fichier_import').order_by(
+        'systeme__ordre_comparaison'
+    )
+    for link in links:
+        if excluded_system is not None and link.systeme_id == excluded_system.pk:
+            continue
+        shipment = link.fichier_import.envois.filter(code_envoi=anomaly.code_envoi).first()
+        if not shipment:
+            continue
+
+        value = None
+        if anomaly.attribut.portee == 'ENVOI':
+            value = shipment.valeurs_attribut.filter(attribut=anomaly.attribut).first()
+        else:
+            service = shipment.services.filter(
+                code_service=anomaly.code_service
+            ).order_by('numero_occurrence').first()
+            if service:
+                value = service.valeurs_attribut.filter(attribut=anomaly.attribut).first()
+
+        if value is None or value.est_vide:
+            continue
+
+        raw = value.valeur_brute or ''
+        display_value = decrypt_sensitive(raw) if anomaly.attribut.sensible else str(raw).strip()
+        observations.append({
+            'systeme': link.systeme.code_systeme,
+            'valeur': display_value or '—',
+            'comparison_value': display_value or '',
+        })
+    return observations
+
+
+def _attribute_value_for_system(anomaly, system):
+    for item in _attribute_observations(anomaly):
+        if item['systeme'] == system.code_systeme:
+            return item['valeur']
+    return '—'
+
+
+def _is_neutral_attribute_absence(validation):
+    anomaly = validation.anomalie
+    if (
+        anomaly.niveau != Anomalie.Niveau.ATTRIBUT
+        or anomaly.type_ecart != Anomalie.TypeEcart.ABSENT
+    ):
+        return False
+    if validation.motif_final.code_motif == 'ATTRIBUT_NON_SYNCHRONISE':
+        return True
+    if validation.prediction_retenue_id:
+        explanation = validation.prediction_retenue.explication or {}
+        return explanation.get('role_diagnostic') == 'CONSTAT_ATTRIBUT'
+    return False
+
+
+def _is_attribute_format_validation(validation):
+    if validation.anomalie.niveau != Anomalie.Niveau.ATTRIBUT:
+        return False
+    if validation.motif_final.code_motif in {
+        'FORMAT_MONTANT_INCOMPATIBLE', 'FORMAT_ATTRIBUT_INCOMPATIBLE'
+    }:
+        return True
+    if validation.prediction_retenue_id:
+        explanation = validation.prediction_retenue.explication or {}
+        indices = explanation.get('indices') or []
+        return any(
+            'format' in str(index.get('constat') or '').lower()
+            for index in indices
+        )
+    return False
+
+
+def _is_neutral_attribute_difference(validation):
+    anomaly = validation.anomalie
+    if (
+        anomaly.niveau != Anomalie.Niveau.ATTRIBUT
+        or anomaly.type_ecart != Anomalie.TypeEcart.DIFFERENT
+    ):
+        return False
+    if validation.prediction_retenue_id:
+        explanation = validation.prediction_retenue.explication or {}
+        return explanation.get('role_diagnostic') == 'CONSTAT_ATTRIBUT_DIFFERENT'
+    return validation.motif_final.code_motif == 'ATTRIBUT_DIFFERENT'
+
+
+def _build_attribute_fill_email(validation, system):
+    anomaly = validation.anomalie
+    field = anomaly.attribut.code_attribut if anomaly.attribut_id else 'ATTRIBUT'
+    observations = _attribute_observations(anomaly, excluded_system=system)
+    source_lines = [f'- {item["systeme"]} : {item["valeur"]}' for item in observations]
+
+    exact_values = {
+        item['comparison_value']
+        for item in observations
+        if item['comparison_value'] not in ('', '—')
+    }
+
+    if len(observations) == 1:
+        reference = observations[0]['valeur']
+        instruction = (
+            f'Merci de renseigner l’attribut {field} dans {system.code_systeme} '
+            f'avec la valeur observée dans le système source : {reference}.'
+        )
+    elif observations and len(exact_values) == 1:
+        reference = observations[0]['valeur']
+        instruction = (
+            f'Les systèmes sources présentent la même valeur. Merci de renseigner '
+            f'l’attribut {field} dans {system.code_systeme} avec la valeur : {reference}.'
+        )
+    elif observations:
+        instruction = (
+            f'Les systèmes sources présentent des valeurs différentes. BAM Supervise '
+            f'ne choisit pas automatiquement une valeur de référence. Merci de vérifier '
+            f'la valeur métier correcte avant de renseigner l’attribut {field} dans '
+            f'{system.code_systeme}.'
+        )
+    else:
+        instruction = (
+            f'Aucune valeur source exploitable n’a été retrouvée dans le dossier. '
+            f'Merci de vérifier la donnée source avant de renseigner l’attribut {field} '
+            f'dans {system.code_systeme}.'
+        )
+
+    subject = (
+        f'[BAM Supervise][{system.code_systeme}] ATTRIBUT À RENSEIGNER - {anomaly.code_envoi}'
+    )
+    body = (
+        f'Bonjour,\n\n'
+        f'Après validation du superviseur, BAM Supervise confirme qu’un attribut '
+        f'n’est pas synchronisé dans votre système.\n\n'
+        f'Code envoi : {anomaly.code_envoi}\n'
+        f'Service : {anomaly.code_service or "-"}\n'
+        f'Attribut : {field}\n'
+        f'Système où l’attribut manque : {system.code_systeme}\n'
+        f'Diagnostic validé : Attribut non synchronisé\n'
+        f'Aucun motif de format n’a été identifié.\n\n'
+        f'Valeur(s) observée(s) dans le ou les systèmes sources :\n'
+        + ('\n'.join(source_lines) if source_lines else '- aucune valeur source disponible')
+        + '\n\n'
+        + instruction
+        + '\n\n'
+        f'BAM Supervise contrôlera le résultat lors de la prochaine campagne : '
+        f'l’anomalie sera marquée résolue si l’attribut est désormais présent, '
+        f'sinon persistante.\n\n'
+        f'Commentaire du superviseur : {validation.commentaire or "-"}\n\n'
+        f'BAM Supervise'
+    )
+    return subject, body
+
+
+def _build_attribute_format_email(validation, system):
+    anomaly = validation.anomalie
+    field = anomaly.attribut.code_attribut if anomaly.attribut_id else 'ATTRIBUT'
+    causes = _causes_for_system(validation, system)
+    constats = [cause['constat'] for cause in causes if cause['constat']]
+    detail = ' ; '.join(dict.fromkeys(constats)) or 'Format source non conforme'
+    observed_value = _attribute_value_for_system(anomaly, system)
+
+    subject = (
+        f'[BAM Supervise][{system.code_systeme}] FORMAT ATTRIBUT À CORRIGER - {anomaly.code_envoi}'
+    )
+    body = (
+        f'Bonjour,\n\n'
+        f'Après validation du superviseur, BAM Supervise a identifié un problème de '
+        f'format sur un attribut dans votre système source.\n\n'
+        f'Code envoi : {anomaly.code_envoi}\n'
+        f'Service : {anomaly.code_service or "-"}\n'
+        f'Attribut : {field}\n'
+        f'Système source à corriger : {system.code_systeme}\n'
+        f'Valeur observée : {observed_value}\n'
+        f'Constat : {detail}\n\n'
+        f'Merci de corriger le format du champ {field} dans {system.code_systeme}, '
+        f'puis de relancer sa synchronisation vers les autres systèmes.\n'
+        f'La résolution sera contrôlée lors de la prochaine campagne.\n\n'
+        f'Commentaire du superviseur : {validation.commentaire or "-"}\n\n'
+        f'BAM Supervise'
+    )
+    return subject, body
+
+
+def _build_attribute_difference_email(validation, system):
+    anomaly = validation.anomalie
+    field = anomaly.attribut.code_attribut if anomaly.attribut_id else 'ATTRIBUT'
+    observations = _attribute_observations(anomaly)
+    value_lines = [
+        f'- {item["systeme"]} : {item["valeur"]}'
+        for item in observations
+    ]
+    subject = (
+        f'[BAM Supervise][{system.code_systeme}] VALEUR ATTRIBUT À VÉRIFIER - {anomaly.code_envoi}'
+    )
+    body = (
+        f'Bonjour,\n\n'
+        f'Après validation du superviseur, BAM Supervise confirme que les systèmes '
+        f'ne portent pas la même valeur pour un attribut.\n\n'
+        f'Code envoi : {anomaly.code_envoi}\n'
+        f'Service : {anomaly.code_service or "-"}\n'
+        f'Attribut : {field}\n'
+        f'Système choisi par le superviseur pour correction : {system.code_systeme}\n\n'
+        f'Valeurs observées :\n'
+        + ('\n'.join(value_lines) if value_lines else '- aucune valeur disponible')
+        + '\n\n'
+        f'Aucune règle métier n’est encore configurée pour déterminer automatiquement '
+        f'la valeur de référence. Le système à traiter a donc été confirmé par le superviseur.\n'
+        f'Merci de vérifier la valeur métier de référence puis de mettre à jour '
+        f'{system.code_systeme} conformément à la décision validée.\n'
+        f'La cohérence sera contrôlée lors de la prochaine campagne.\n\n'
+        f'Commentaire du superviseur : {validation.commentaire or "-"}\n\n'
+        f'BAM Supervise'
+    )
+    return subject, body
+
+
+def build_email(validation, group, system):
+    anomaly = validation.anomalie
+    if anomaly.niveau == Anomalie.Niveau.SERVICE:
+        return _build_service_email(validation, system)
+
+    if (
+        anomaly.niveau == Anomalie.Niveau.ENVOI
+        and validation.motif_final.code_motif == 'MOTIF_INCONNU'
+    ):
+        return _build_envoi_retry_email(validation, system)
+
+    if _is_envoi_mandatory_validation(validation):
+        return _build_envoi_mandatory_email(validation, system)
+
+    if _is_attribute_format_validation(validation):
+        return _build_attribute_format_email(validation, system)
+
+    if _is_neutral_attribute_absence(validation):
+        return _build_attribute_fill_email(validation, system)
+
+    if _is_neutral_attribute_difference(validation):
+        return _build_attribute_difference_email(validation, system)
+
+    if anomaly.niveau == Anomalie.Niveau.ENVOI:
+        element = f'Envoi {anomaly.code_envoi}'
+    else:
+        element = (
+            f'Attribut {anomaly.attribut.code_attribut if anomaly.attribut_id else "-"} '
+            f'de l’envoi {anomaly.code_envoi}'
+        )
+
+    causes = _causes_for_system(validation, system)
+    primary = causes[0] if causes else {
+        'motif': validation.motif_final,
+        'label': validation.motif_final.libelle,
+        'field': validation.motif_final.champ_typique or '-',
+        'constat': '',
+        'score': None,
+    }
+
+    subject = f'[BAM Supervise][{system.code_systeme}] {anomaly.niveau} {anomaly.type_ecart} - {anomaly.code_envoi}'
+    if anomaly.type_ecart == Anomalie.TypeEcart.DIFFERENT:
+        gap_description = 'Valeurs observées : ' + ' ; '.join(
+            f'{detail.systeme.code_systeme}={detail.valeur_brute or "—"}'
+            for detail in anomaly.details.select_related('systeme').order_by('systeme__ordre_comparaison')
+        )
+    else:
+        observed_system = anomaly.systeme_ecart.code_systeme if anomaly.systeme_ecart_id else '-'
+        gap_description = (
+            f'Système où l’élément manque : {observed_system}\n'
+            f'Système où l’anomalie est observée : {observed_system}'
+        )
+
+    cause_lines = []
+    for cause in causes:
+        line = f'- {cause["label"]} | champ : {cause["field"]}'
+        if cause['constat']:
+            line += f' | constat : {cause["constat"]}'
+        if cause['score'] is not None:
+            line += f' | confiance : {cause["score"]:.0f}%'
+        cause_lines.append(line)
+    if not cause_lines:
+        cause_lines.append(f'- {primary["label"]} | champ : {primary["field"]}')
+
+    body = (
+        f'Bonjour,\n\n'
+        f'BAM Supervise a détecté une anomalie de synchronisation.\n\n'
+        f'Code envoi : {anomaly.code_envoi}\n'
+        f'Élément non synchronisé : {element}\n'
+        f'{gap_description}\n'
+        f'Service : {anomaly.code_service or "-"}\n'
+        f'Attribut : {anomaly.attribut.code_attribut if anomaly.attribut_id else "-"}\n'
+        f'Motif validé : {primary["label"]}\n'
+        f'Champ source à vérifier : {primary["field"]}\n'
+        f'Système à corriger : {system.code_systeme}\n'
+        f'Système responsable de la correction : {system.code_systeme}\n\n'
+        f'Causes à traiter pour {system.code_systeme} :\n'
+        + '\n'.join(cause_lines)
+        + '\n\n'
+        f'Commentaire : {validation.commentaire or "-"}\n\n'
+        f'Merci de vérifier ces données dans votre système. '
+        f'La résolution sera contrôlée lors du prochain import.\n\n'
+        f'BAM Supervise'
+    )
+    return subject, body
+
+
+def _personalize_recipient_body(body, recipient_name):
+    """Personalize only the greeting; the validated business content stays identical."""
+    name = str(recipient_name or '').strip() or 'collaborateur'
+    generic_greeting = 'Bonjour,\n\n'
+    personalized_greeting = f'Bonjour {name},\n\n'
+    if body.startswith(generic_greeting):
+        return personalized_greeting + body[len(generic_greeting):]
+    return personalized_greeting + body
+
+
+def _recipient_specs(group, only_emails=None):
+    contacts = list(group.contacts.all().order_by('id'))
+    restrict = only_emails is not None
+    wanted = {str(email).strip().lower() for email in (only_emails or []) if str(email).strip()}
+    specs = []
+    seen = set()
+
+    for contact in contacts:
+        email = str(contact.email or '').strip()
+        key = email.lower()
+        if not email or key in seen or (restrict and key not in wanted):
+            continue
+        seen.add(key)
+        specs.append({
+            'contact': contact,
+            'nom': contact.nom_complet or email,
+            'email': email,
+            'collectif': False,
+        })
+
+    collective = str(group.email_collectif or '').strip()
+    collective_key = collective.lower()
+    if (
+        collective
+        and collective_key not in seen
+        and (not restrict or collective_key in wanted)
+    ):
+        specs.append({
+            'contact': None,
+            'nom': group.nom_groupe,
+            'email': collective,
+            'collectif': True,
+        })
+    return specs
+
+
+def _send_one(validation, system, only_emails=None):
+    group = route_group(validation, system)
+    specs = _recipient_specs(group, only_emails=only_emails)
+    if not specs:
+        if only_emails is not None:
+            raise RoutingError(
+                f'Aucun des destinataires en échec n’est encore enregistré dans le groupe '
+                f'responsable de {system.code_systeme}.'
+            )
+        raise RoutingError(
+            f'Le groupe responsable de {system.code_systeme} ne possède aucune adresse e-mail enregistrée.'
+        )
+
+    subject, body = build_email(validation, group, system)
+    if len(specs) == 1:
+        stored_name = (
+            f'équipe {specs[0]["nom"]}' if specs[0]['collectif'] else specs[0]['nom']
+        )
+    else:
+        stored_name = '[Nom du collaborateur]'
+    stored_body = _personalize_recipient_body(body, stored_name)
+
+    with transaction.atomic():
+        notification = Notification.objects.create(
+            validation=validation,
+            groupe=group,
+            objet=subject,
+            message=stored_body,
+        )
+        rows = []
+        for spec in specs:
+            rows.append(NotificationDestinataire.objects.create(
+                notification=notification,
+                contact=spec['contact'],
+                nom_snapshot=spec['nom'],
+                email_snapshot=spec['email'],
+            ))
+
+    notification.nb_tentatives += 1
+    try:
+        _ensure_real_delivery_backend()
+    except Exception as exc:
+        error_message = _delivery_error_message(exc)
+        with transaction.atomic():
+            notification.statut = Notification.Statut.ECHEC
+            notification.erreur = error_message[:2000]
+            notification.save(update_fields=['nb_tentatives', 'statut', 'erreur'])
+            for row in rows:
+                row.statut_livraison = NotificationDestinataire.Statut.ECHEC
+                row.erreur = error_message[:500]
+                row.save(update_fields=['statut_livraison', 'erreur'])
+        raise RoutingError(error_message) from exc
+
+    reply_to = [settings.EMAIL_REPLY_TO] if settings.EMAIL_REPLY_TO else None
+    failures = []
+    sent_rows = []
+
+    for row in rows:
+        recipient_name = (
+            row.nom_snapshot if row.contact_id else f'équipe {row.nom_snapshot}'
+        )
+        personalized_body = _personalize_recipient_body(body, recipient_name)
+        try:
+            sent = EmailMessage(
+                subject=subject,
+                body=personalized_body,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=[row.email_snapshot],
+                reply_to=reply_to,
+            ).send(fail_silently=False)
+            if sent != 1:
+                raise RuntimeError("Le backend e-mail n'a pas confirmé l'envoi du message.")
+
+            now = timezone.now()
+            row.statut_livraison = NotificationDestinataire.Statut.ENVOYE
+            row.envoyee_le = now
+            row.erreur = ''
+            row.save(update_fields=['statut_livraison', 'envoyee_le', 'erreur'])
+            sent_rows.append(row)
+        except Exception as exc:
+            error_message = _delivery_error_message(exc)
+            row.statut_livraison = NotificationDestinataire.Statut.ECHEC
+            row.erreur = error_message[:500]
+            row.save(update_fields=['statut_livraison', 'erreur'])
+            failures.append((row.email_snapshot, error_message))
+
+    if failures:
+        details = ' ; '.join(f'{email}: {message}' for email, message in failures)
+        notification.statut = Notification.Statut.ECHEC
+        notification.erreur = (
+            f'{len(failures)} destinataire(s) en échec sur {len(rows)} : {details}'
+        )[:2000]
+        notification.save(update_fields=['nb_tentatives', 'statut', 'erreur'])
+        raise RoutingError(notification.erreur)
+
+    notification.statut = Notification.Statut.ENVOYEE
+    notification.envoyee_le = max(row.envoyee_le for row in sent_rows)
+    notification.erreur = ''
+    notification.save(update_fields=['nb_tentatives', 'statut', 'envoyee_le', 'erreur'])
+    return notification
+
+
+def send_validation_email(validation):
+    systems = _target_systems(validation)
+    sent_notifications = []
+    failures = []
+
+    for system in systems:
+        try:
+            sent_notifications.append(_send_one(validation, system))
+        except Exception as exc:
+            failures.append((system.code_systeme, str(exc)))
+
+    if sent_notifications:
+        anomaly = validation.anomalie
+        old = anomaly.statut
+        anomaly.statut = Anomalie.Statut.NOTIFIEE
+        anomaly.save(update_fields=['statut'])
+        HistoriqueAnomalie.objects.create(
+            anomalie=anomaly,
+            ancien_statut=old,
+            nouveau_statut=Anomalie.Statut.NOTIFIEE,
+            source_evenement='MAIL',
+            superviseur=validation.superviseur,
+            commentaire=(
+                'Notifications envoyées aux systèmes responsables ou sources validés : '
+                + ', '.join(notification.groupe.systeme.code_systeme for notification in sent_notifications)
+                + '.'
+            ),
+        )
+
+    if failures:
+        details = ' ; '.join(f'{code}: {message}' for code, message in failures)
+        if sent_notifications:
+            raise RoutingError(f'Notification partielle : {details}')
+        raise RoutingError(details)
+
+    return sent_notifications[0]

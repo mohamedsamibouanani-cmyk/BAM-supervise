@@ -1,0 +1,80 @@
+{% extends 'supervision/base.html' %}
+{% block title %}Campagnes · BAM Supervise{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-eyebrow"><i class="bi bi-clock-history"></i> Suivi</div>
+    <h1 class="page-title">Campagnes</h1>
+    <p class="page-subtitle">Imports et résultats en un coup d’œil.</p>
+  </div>
+  <div class="page-actions"><a class="btn btn-primary" href="{% url 'campaign_create' %}"><i class="bi bi-plus-lg me-1"></i> Nouvelle campagne</a></div>
+</div>
+
+<nav class="campaign-status-tabs" aria-label="Filtrer les campagnes par statut">
+  <a class="campaign-status-tab {% if not statut %}is-active{% endif %}" href="{% url 'campaign_list' %}">
+    <span>Toutes</span><strong>{{ summary.total }}</strong>
+  </a>
+  <a class="campaign-status-tab is-success {% if statut == 'TERMINEE' %}is-active{% endif %}" href="?statut=TERMINEE">
+    <span>Terminées</span><strong>{{ summary.terminees }}</strong>
+  </a>
+  <a class="campaign-status-tab is-danger {% if statut == 'ECHEC' %}is-active{% endif %}" href="?statut=ECHEC">
+    <span>Échecs</span><strong>{{ summary.echecs }}</strong>
+  </a>
+  <a class="campaign-status-tab is-progress {% if statut == 'EN_COURS' %}is-active{% endif %}" href="?statut=EN_COURS">
+    <span>En cours</span><strong>{{ summary.en_cours }}</strong>
+  </a>
+</nav>
+
+<section class="panel campaign-history-panel">
+  <div class="panel-header"><div><h2 class="panel-title">Historique</h2><p class="panel-subtitle">Du plus récent au plus ancien</p></div><span class="system-badge">{{ campagnes|length }} résultat{{ campagnes|length|pluralize }}</span></div>
+  {% if campagnes %}
+  <div class="table-wrap">
+    <table class="table campaign-history-table">
+      <thead><tr><th>Campagne</th><th>Fichiers</th><th>Résultat</th><th>État</th></tr></thead>
+      <tbody>
+      {% for c in campagnes %}
+        <tr class="campaign-row campaign-row-{{ c.statut|lower }}">
+          <td>
+            <div class="campaign-identity"><span class="campaign-number">#{{ c.pk }}</span><strong>{{ c.demarree_le|date:'d/m/Y' }}</strong></div>
+            <div class="campaign-meta"><i class="bi bi-clock"></i> {{ c.demarree_le|date:'H:i' }} · ORG {{ c.org_commerciale }}</div>
+          </td>
+          <td>
+            <div class="campaign-import-summary"><strong>{{ c.import_count }}/3</strong><span>fichiers reçus</span></div>
+            <div class="campaign-mini-progress" aria-label="{{ c.import_count }} fichier sur 3">
+              <span class="{% if c.import_count >= 1 %}is-complete{% endif %}"></span>
+              <span class="{% if c.import_count >= 2 %}is-complete{% endif %}"></span>
+              <span class="{% if c.import_count >= 3 %}is-complete{% endif %}"></span>
+            </div>
+          </td>
+          <td>
+            {% if c.statut == 'TERMINEE' %}
+              <div class="campaign-result is-complete"><strong>{{ c.anomaly_count }}</strong><span>anomalie{{ c.anomaly_count|pluralize }} détectée{{ c.anomaly_count|pluralize }}</span></div>
+            {% elif c.statut == 'ECHEC' %}
+              <div class="campaign-result is-failed"><i class="bi bi-slash-circle"></i><span>Comparaison non exécutée</span></div>
+            {% else %}
+              <div class="campaign-result is-waiting"><i class="bi bi-hourglass-split"></i><span>En attente</span></div>
+            {% endif %}
+          </td>
+          <td class="campaign-state-cell">
+            {% if c.statut == 'TERMINEE' %}
+              <span class="campaign-state is-complete"><i class="bi bi-check-circle-fill"></i> Terminée</span>
+            {% elif c.statut == 'ECHEC' %}
+              <span class="campaign-state is-failed"><i class="bi bi-x-circle-fill"></i> Échec</span>
+              <div class="campaign-failure-reason"><strong>Cause :</strong> {{ c.message_erreur|default:'Import interrompu avant la validation des fichiers.'|truncatechars:105 }}</div>
+              <a class="campaign-retry" href="{% url 'campaign_create' %}"><i class="bi bi-arrow-clockwise"></i> Réessayer</a>
+            {% elif c.statut == 'EN_COURS' %}
+              <span class="campaign-state is-running"><i class="bi bi-arrow-repeat"></i> En cours</span>
+            {% else %}
+              <span class="campaign-state is-waiting"><i class="bi bi-hourglass"></i> À démarrer</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <div class="empty-state"><div class="empty-icon"><i class="bi bi-clock-history"></i></div><h3>Aucun résultat</h3><p>{% if statut %}Aucune campagne avec ce statut.{% else %}Lancez votre première campagne.{% endif %}</p>{% if statut %}<a class="btn btn-light mt-3" href="{% url 'campaign_list' %}">Voir toutes les campagnes</a>{% endif %}</div>
+  {% endif %}
+</section>
+{% endblock %}

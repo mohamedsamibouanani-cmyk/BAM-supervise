@@ -1,0 +1,17 @@
+.notification-time{
+  margin-top:4px;
+  color:#8a96a8;
+  font-size:10px;
+}
+
+.notification-error{
+  max-width:320px;
+  margin-top:5px;
+  color:#b42318;
+  font-size:10px;
+  line-height:1.35;
+}
+
+@media(max-width:767.98px){
+  .notification-error{max-width:none}
+}

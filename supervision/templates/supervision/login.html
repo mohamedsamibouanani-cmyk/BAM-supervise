@@ -1,0 +1,33 @@
+{% extends 'supervision/base.html' %}
+{% block title %}Connexion · BAM Supervise{% endblock %}
+{% block auth_content %}
+<div class="login-shell">
+  <section class="login-form">
+    <div class="login-identity">
+      <span class="brand-mark">BAM-S</span>
+      <strong>BAM Supervise</strong>
+    </div>
+    <h1>Connexion</h1>
+    <form method="post" novalidate>{% csrf_token %}
+      {% if form.non_field_errors %}
+        <div class="alert alert-danger login-error" role="alert">
+          <i class="bi bi-x-circle-fill" aria-hidden="true"></i>
+          Identifiant ou mot de passe incorrect.
+        </div>
+      {% endif %}
+      <div class="login-field">
+        <label for="{{ form.username.id_for_label }}">Nom d’utilisateur</label>
+        {{ form.username }}
+        {% for error in form.username.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <div class="login-field">
+        <label for="{{ form.password.id_for_label }}">Mot de passe</label>
+        {{ form.password }}
+        {% for error in form.password.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+      </div>
+      <button class="btn btn-primary w-100" type="submit"><i class="bi bi-box-arrow-in-right me-1"></i> Se connecter</button>
+    </form>
+    <div class="login-footer">Barid Al-Maghrib · Poste Maroc</div>
+  </section>
+</div>
+{% endblock %}

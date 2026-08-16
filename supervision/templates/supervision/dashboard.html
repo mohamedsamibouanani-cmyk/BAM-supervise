@@ -1,0 +1,150 @@
+{% extends 'supervision/base.html' %}
+{% load static ml_dashboard %}
+{% block title %}Tableau de bord · BAM Supervise{% endblock %}
+{% block head %}
+<script src="{% static 'vendor/chart/chart.umd.min.js' %}"></script>
+<link rel="stylesheet" href="{% static 'supervision/dashboard-ml.css' %}">
+{% endblock %}
+{% block content %}
+<div class="page-header dashboard-heading">
+  <div>
+    <div class="page-eyebrow"><i class="bi bi-grid-1x2-fill"></i> Tableau de bord</div>
+    <h1 class="page-title">Bonjour, {{ user.nom_complet|default:user.username }}</h1>
+    <p class="page-subtitle">Voici ce qui demande votre attention aujourd’hui.</p>
+  </div>
+  <div class="page-actions">
+    <span class="role-badge"><i class="bi bi-person-check-fill"></i> Superviseur</span>
+    <a class="btn btn-light" href="{% url 'campaign_list' %}"><i class="bi bi-clock-history me-1"></i> Historique</a>
+    <a class="btn btn-primary" href="{% url 'campaign_create' %}"><i class="bi bi-plus-lg me-1"></i> Nouvelle campagne</a>
+  </div>
+</div>
+
+<section class="dashboard-focus {% if a_valider %}has-work{% else %}is-clear{% endif %}">
+  <div class="dashboard-focus-icon">
+    <i class="bi {% if a_valider %}bi-inbox-fill{% else %}bi-check2-circle{% endif %}"></i>
+  </div>
+  <div class="dashboard-focus-copy">
+    <span class="dashboard-focus-label">Priorité maintenant</span>
+    {% if a_valider %}
+      <h2>{{ a_valider }} anomalie{{ a_valider|pluralize }} à valider</h2>
+      <p>Commencez par les dossiers les plus anciens pour réduire le délai de traitement.</p>
+    {% else %}
+      <h2>Aucune décision en attente</h2>
+      <p>Les anomalies détectées ont toutes été prises en charge.</p>
+    {% endif %}
+  </div>
+  {% if a_valider %}
+    <a class="btn btn-primary dashboard-focus-action" href="{% url 'anomaly_list' %}">Commencer <i class="bi bi-arrow-right ms-1"></i></a>
+  {% else %}
+    <a class="btn btn-light dashboard-focus-action" href="{% url 'anomaly_list' %}">Voir le registre</a>
+  {% endif %}
+  <div class="dashboard-focus-campaign">
+    <span>Dernière campagne</span>
+    {% if latest_campaign %}
+      <strong>#{{ latest_campaign.pk }} · {{ latest_campaign.get_statut_display }}</strong>
+      <small>{{ latest_campaign.demarree_le|date:'d/m/Y à H:i' }}</small>
+    {% else %}
+      <strong>Aucune campagne</strong>
+      <small>Importez les trois premiers fichiers.</small>
+    {% endif %}
+  </div>
+</section>
+
+<div class="dashboard-kpis">
+  <a class="dashboard-kpi is-action" href="{% url 'anomaly_list' %}">
+    <span class="dashboard-kpi-icon"><i class="bi bi-person-check"></i></span>
+    <span class="dashboard-kpi-copy"><small>À valider</small><strong>{{ a_valider }}</strong><em>{{ nouvelles_aujourdhui }} nouvelle{{ nouvelles_aujourdhui|pluralize }} aujourd’hui</em></span>
+    <i class="bi bi-chevron-right dashboard-kpi-arrow"></i>
+  </a>
+  <a class="dashboard-kpi" href="{% url 'anomaly_list' %}">
+    <span class="dashboard-kpi-icon"><i class="bi bi-arrow-repeat"></i></span>
+    <span class="dashboard-kpi-copy"><small>En suivi</small><strong>{{ en_suivi }}</strong><em>Validées, notifiées ou persistantes</em></span>
+    <i class="bi bi-chevron-right dashboard-kpi-arrow"></i>
+  </a>
+  <a class="dashboard-kpi is-success" href="{% url 'anomaly_list' %}?statut=RESOLUE">
+    <span class="dashboard-kpi-icon"><i class="bi bi-check2-all"></i></span>
+    <span class="dashboard-kpi-copy"><small>Résolues</small><strong>{{ resolues }}</strong><em>{{ taux_resolution }} % du total</em></span>
+    <i class="bi bi-chevron-right dashboard-kpi-arrow"></i>
+  </a>
+  <a class="dashboard-kpi {% if notifications_echec %}is-danger{% endif %}" href="{% url 'notification_list' %}">
+    <span class="dashboard-kpi-icon"><i class="bi bi-envelope-exclamation"></i></span>
+    <span class="dashboard-kpi-copy"><small>Échecs d’envoi</small><strong>{{ notifications_echec }}</strong><em>{{ notifications_envoyees }} notification{{ notifications_envoyees|pluralize }} envoyée{{ notifications_envoyees|pluralize }}</em></span>
+    <i class="bi bi-chevron-right dashboard-kpi-arrow"></i>
+  </a>
+</div>
+
+<div class="dashboard-workspace">
+  <section class="panel dashboard-queue">
+    <div class="panel-header">
+      <div><h2 class="panel-title">À traiter en priorité</h2><p class="panel-subtitle">Les dossiers les plus anciens qui attendent une décision</p></div>
+      <a class="table-action" href="{% url 'anomaly_list' %}">Tout voir <i class="bi bi-arrow-right"></i></a>
+    </div>
+    {% if prioritaires %}
+      <div class="dashboard-task-list">
+      {% for a in prioritaires %}
+        <a class="dashboard-task" href="{% url 'anomaly_detail' a.pk %}">
+          <span class="dashboard-task-level level-{{ a.niveau }}"><i class="bi {% if a.niveau == 'ENVOI' %}bi-box-seam{% elif a.niveau == 'SERVICE' %}bi-grid{% else %}bi-braces{% endif %}"></i></span>
+          <span class="dashboard-task-copy">
+            <strong>{{ a.code_envoi }}</strong>
+            <small>{{ a.get_type_ecart_display }} · {{ a.get_niveau_display }}{% if a.systeme_ecart %} · {{ a.systeme_ecart.code_systeme }}{% endif %}</small>
+          </span>
+          <span class="dashboard-task-time">{{ a.detectee_le|date:'d/m · H:i' }}</span>
+          <span class="dashboard-task-action">Analyser <i class="bi bi-chevron-right"></i></span>
+        </a>
+      {% endfor %}
+      </div>
+    {% else %}
+      <div class="dashboard-empty"><i class="bi bi-check2-circle"></i><strong>File de traitement vide</strong><span>Aucune anomalie n’attend votre décision.</span></div>
+    {% endif %}
+  </section>
+
+  <section class="panel dashboard-trend">
+    <div class="panel-header">
+      <div><h2 class="panel-title">Activité sur 7 jours</h2><p class="panel-subtitle">Détections et résolutions, jour par jour</p></div>
+      <span class="dashboard-period-pill"><i class="bi bi-calendar3"></i> 7 jours</span>
+    </div>
+    <div class="panel-body">
+      {% if trend_has_activity %}
+        <div class="chart-shell"><canvas id="trendChart" aria-label="Courbe des anomalies détectées et résolues sur les sept derniers jours" role="img"></canvas></div>
+      {% else %}
+        <div class="dashboard-chart-empty"><i class="bi bi-graph-up"></i><strong>Aucune activité sur cette période</strong><span>La courbe apparaîtra après une détection ou une résolution.</span></div>
+      {% endif %}
+      <div class="dashboard-trend-summary">
+        <div><span><i class="trend-dot is-detected"></i> Détectées</span><strong>{{ trend_detected_total }}</strong></div>
+        <div><span><i class="trend-dot is-resolved"></i> Résolues</span><strong>{{ trend_resolved_total }}</strong></div>
+        <div class="{% if trend_balance > 0 %}is-warning{% elif trend_balance < 0 %}is-positive{% endif %}"><span>Solde de la période</span><strong>{% if trend_balance > 0 %}+{% endif %}{{ trend_balance }}</strong></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+{% ml_dashboard_card %}
+
+<section class="panel dashboard-campaigns">
+  <div class="panel-header">
+    <div><h2 class="panel-title">Campagnes récentes</h2><p class="panel-subtitle">État des dernières comparaisons SMI, SICOM et SIBO</p></div>
+    <a class="table-action" href="{% url 'campaign_list' %}">Historique complet <i class="bi bi-arrow-right"></i></a>
+  </div>
+  {% if campagnes %}
+    <div class="dashboard-campaign-grid">
+    {% for c in campagnes %}
+      <article class="dashboard-campaign-card is-{{ c.statut|lower }}">
+        <div class="dashboard-campaign-top"><span class="campaign-number">#{{ c.pk }}</span><span class="campaign-state {% if c.statut == 'TERMINEE' %}is-complete{% elif c.statut == 'ECHEC' %}is-failed{% elif c.statut == 'EN_COURS' %}is-running{% else %}is-waiting{% endif %}"><i class="bi {% if c.statut == 'TERMINEE' %}bi-check-circle-fill{% elif c.statut == 'ECHEC' %}bi-x-circle-fill{% else %}bi-clock-fill{% endif %}"></i> {{ c.get_statut_display }}</span></div>
+        <strong class="dashboard-campaign-result">{% if c.statut == 'ECHEC' %}Comparaison interrompue{% else %}{{ c.nb_anomalies }} anomalie{{ c.nb_anomalies|pluralize }}{% endif %}</strong>
+        <span class="dashboard-campaign-date">{{ c.demarree_le|date:'d/m/Y à H:i' }}</span>
+        <div class="dashboard-campaign-progress" aria-label="{{ c.import_count }} fichier(s) sur 3">
+          <span class="{% if c.import_count >= 1 %}is-ready{% endif %}"></span><span class="{% if c.import_count >= 2 %}is-ready{% endif %}"></span><span class="{% if c.import_count >= 3 %}is-ready{% endif %}"></span>
+          <small>{{ c.import_count }}/3 fichiers</small>
+        </div>
+        {% if c.statut == 'ECHEC' and c.message_erreur %}<p class="dashboard-campaign-error">{{ c.message_erreur|truncatechars:85 }}</p>{% endif %}
+      </article>
+    {% endfor %}
+    </div>
+  {% else %}
+    <div class="dashboard-empty"><i class="bi bi-cloud-arrow-up"></i><strong>Aucune campagne</strong><span>Lancez une première comparaison pour alimenter le tableau de bord.</span></div>
+  {% endif %}
+</section>
+
+{{ dashboard_data|json_script:"dashboard-data" }}
+{% endblock %}
+{% block scripts %}<script src="{% static 'supervision/dashboard.js' %}"></script>{% endblock %}

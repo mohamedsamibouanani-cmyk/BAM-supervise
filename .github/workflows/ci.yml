@@ -1,0 +1,15 @@
+name: CI
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: DB_ENGINE=sqlite python manage.py makemigrations supervision --noinput
+      - run: DB_ENGINE=sqlite EMAIL_BACKEND=django.core.mail.backends.locmem.EmailBackend python manage.py test

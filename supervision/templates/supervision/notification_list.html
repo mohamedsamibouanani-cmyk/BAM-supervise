@@ -1,0 +1,61 @@
+{% extends 'supervision/base.html' %}
+{% load static %}
+{% block title %}Notifications · BAM Supervise{% endblock %}
+{% block head %}<link rel="stylesheet" href="{% static 'supervision/notification-list.css' %}">{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-eyebrow"><i class="bi bi-envelope-paper" aria-hidden="true"></i> Action & routage</div>
+    <h1 class="page-title">Notifications</h1>
+    <p class="page-subtitle">Suivi des messages envoyés aux équipes responsables, avec traçabilité des destinataires et des relances.</p>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-md-4"><div class="metric-card metric-success"><div class="metric-top"><span class="metric-label">Envoyées</span><span class="metric-icon"><i class="bi bi-envelope-check" aria-hidden="true"></i></span></div><strong class="metric-value">{{ sent_count }}</strong><div class="metric-foot">Envoi confirmé par le serveur e-mail</div></div></div>
+  <div class="col-md-4"><div class="metric-card metric-warning"><div class="metric-top"><span class="metric-label">À envoyer</span><span class="metric-icon"><i class="bi bi-envelope" aria-hidden="true"></i></span></div><strong class="metric-value">{{ pending_count }}</strong><div class="metric-foot">Messages encore en attente</div></div></div>
+  <div class="col-md-4"><div class="metric-card metric-danger"><div class="metric-top"><span class="metric-label">Échecs</span><span class="metric-icon"><i class="bi bi-envelope-exclamation" aria-hidden="true"></i></span></div><strong class="metric-value">{{ failed_count }}</strong><div class="metric-foot">Envois à contrôler ou relancer</div></div></div>
+</div>
+
+<form class="filter-bar" method="get" aria-label="Filtrer les notifications">
+  <div class="filter-field"><label class="form-label" for="notification-status">Statut</label><select class="form-select" id="notification-status" name="statut"><option value="">Tous</option><option value="A_ENVOYER" {% if statut == 'A_ENVOYER' %}selected{% endif %}>À envoyer</option><option value="ENVOYEE" {% if statut == 'ENVOYEE' %}selected{% endif %}>Envoyée</option><option value="ECHEC" {% if statut == 'ECHEC' %}selected{% endif %}>Échec</option></select></div>
+  <div><button class="btn btn-light" type="submit"><i class="bi bi-funnel me-1" aria-hidden="true"></i> Filtrer</button></div>
+  {% if statut %}<div><a class="btn btn-link" href="{% url 'notification_list' %}">Réinitialiser</a></div>{% endif %}
+</form>
+
+<section class="panel" aria-labelledby="notification-journal-title">
+  <div class="panel-header"><div><h2 class="panel-title" id="notification-journal-title">Journal des messages</h2><p class="panel-subtitle">Une relance ne retente que le système en échec. L’ancienne tentative reste conservée pour l’audit.</p></div></div>
+  {% if notifications %}
+  <div class="table-wrap"><table class="table table-hover">
+    <caption class="visually-hidden">Historique des notifications BAM Supervise</caption>
+    <thead><tr><th>Date</th><th>Envoi</th><th>Cause</th><th>Système destinataire</th><th>Groupe</th><th>Destinataires</th><th>Tentative</th><th>Statut</th><th>Action</th></tr></thead>
+    <tbody>
+    {% for n in notifications %}
+      <tr>
+        <td>{{ n.creee_le|date:'d/m/Y' }}<div class="notification-time">{{ n.creee_le|date:'H:i:s' }}</div></td>
+        <td><a class="code" href="{% url 'anomaly_detail' n.validation.anomalie.pk %}">{{ n.validation.anomalie.code_envoi }}</a></td>
+        <td>{{ n.validation.motif_final.libelle|truncatechars:45 }}</td>
+        <td><span class="system-badge">{{ n.groupe.systeme.code_systeme }}</span></td>
+        <td>{{ n.groupe.nom_groupe }}</td>
+        <td><strong>{{ n.recipient_count }}</strong></td>
+        <td>{{ n.nb_tentatives }}</td>
+        <td>
+          {% if n.statut == 'ENVOYEE' %}<span class="status-badge status-RESOLUE"><i class="bi bi-check-circle" aria-hidden="true"></i> Envoyée</span>
+          {% elif n.statut == 'ECHEC' %}<span class="status-badge status-DETECTEE"><i class="bi bi-x-circle" aria-hidden="true"></i> Échec</span>
+          {% else %}<span class="status-badge status-ANALYSEE">À envoyer</span>{% endif %}
+          {% if n.erreur %}<div class="notification-error">{{ n.erreur|truncatechars:110 }}</div>{% endif %}
+        </td>
+        <td>
+          {% if n.statut == 'ECHEC' %}
+          <form method="post" action="{% url 'notification_retry' n.pk %}" class="m-0">{% csrf_token %}
+            <button class="btn btn-sm btn-outline-primary" type="submit" aria-label="Relancer la notification {{ n.groupe.systeme.code_systeme }} pour {{ n.validation.anomalie.code_envoi }}"><i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>Relancer</button>
+          </form>
+          {% else %}<span class="text-secondary">—</span>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<div class="empty-state"><div class="empty-icon"><i class="bi bi-envelope" aria-hidden="true"></i></div><h3>Aucune notification</h3><p>Les messages apparaîtront ici après la validation d’une anomalie et son routage vers une équipe responsable.</p></div>{% endif %}
+</section>
+{% endblock %}

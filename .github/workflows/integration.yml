@@ -1,0 +1,75 @@
+name: Integration MySQL and Docker
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  mysql:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: bam_supervise
+          MYSQL_ROOT_PASSWORD: root_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      DB_ENGINE: mysql
+      MYSQL_DATABASE: bam_supervise
+      MYSQL_USER: root
+      MYSQL_PASSWORD: root_password
+      MYSQL_HOST: 127.0.0.1
+      MYSQL_PORT: 3306
+      DJANGO_SECRET_KEY: ci-integration-secret
+      EMAIL_BACKEND: django.core.mail.backends.locmem.EmailBackend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Create schema and run checks on MySQL
+        run: |
+          python manage.py makemigrations supervision --noinput
+          python manage.py migrate --noinput
+          python manage.py seed_bam
+          python manage.py check
+      - name: Run application tests on MySQL
+        run: python manage.py test
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare Docker environment
+        run: |
+          cp .env.example .env
+          sed -i 's/EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend/EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend/' .env
+      - name: Validate compose file
+        run: docker compose config
+      - name: Build and start BAM Supervise
+        run: docker compose up -d --build
+      - name: Verify application responds
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/login/ | grep -q 'BAM Supervise'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose ps
+          docker compose logs web
+          exit 1
+      - name: Show service status
+        if: always()
+        run: docker compose ps
+      - name: Stop containers
+        if: always()
+        run: docker compose down -v

@@ -1,0 +1,92 @@
+<section class="panel dashboard-ml-panel" aria-labelledby="ml-panel-title">
+  <div class="panel-header">
+    <div>
+      <div class="page-eyebrow"><i class="bi bi-cpu"></i> Aide à la décision</div>
+      <h2 class="panel-title" id="ml-panel-title">Machine Learning</h2>
+      <p class="panel-subtitle">Le modèle apprend uniquement des causes réelles validées par le superviseur. Un simple constat technique ou une validation sans cause confirmée ne suffit pas.</p>
+    </div>
+    {% if ml_model %}
+      <span class="status-badge status-RESOLUE"><i class="bi bi-check-circle-fill"></i> Modèle actif</span>
+    {% elif ml_ready %}
+      <span class="status-badge status-ANALYSEE"><i class="bi bi-hourglass-split"></i> Entraînement possible</span>
+    {% else %}
+      <span class="status-badge status-ANALYSEE"><i class="bi bi-database"></i> Apprentissage en cours</span>
+    {% endif %}
+  </div>
+
+  <div class="panel-body">
+    {% if ml_model %}
+      <div class="ml-dashboard-hero">
+        <div class="ml-dashboard-orb"><i class="bi bi-stars"></i></div>
+        <div class="ml-dashboard-hero-copy">
+          <span>Version active</span>
+          <strong>{{ ml_model.version_modele }}</strong>
+          <small>{{ ml_model.algorithme }}</small>
+        </div>
+        {% if ml_accuracy_percent is not None %}
+          <div class="ml-dashboard-probability" title="Mesure issue du modèle ML sur le jeu de validation">
+            <span>Précision ML</span>
+            <strong>{{ ml_accuracy_percent }}%</strong>
+            {% if ml_validation_size %}<small>{{ ml_validation_size }} cas de validation</small>{% endif %}
+          </div>
+        {% else %}
+          <div class="ml-dashboard-probability" title="Pas assez d'exemples par cause pour constituer un jeu de validation séparé">
+            <span>Précision ML</span>
+            <strong>Non mesurée</strong>
+            <small>historique encore limité</small>
+          </div>
+        {% endif %}
+      </div>
+
+      <div class="ml-dashboard-grid">
+        <div class="ml-dashboard-stat"><span>Décisions apprises</span><strong>{{ ml_model.nb_exemples }}</strong><small>causes humaines réellement utilisées</small></div>
+        <div class="ml-dashboard-stat"><span>Motifs appris</span><strong>{{ ml_trainable_classes }}</strong><small>au moins {{ ml_minimum_examples_per_class }} validations par cause</small></div>
+        <div class="ml-dashboard-stat"><span>Suggestions ML produites</span><strong>{{ ml_prediction_count }}</strong><small>suggestions causales uniquement</small></div>
+        <div class="ml-dashboard-stat"><span>Dernier entraînement</span><strong>{{ ml_model.entraine_le|date:'d/m/Y' }}</strong><small>{{ ml_model.entraine_le|date:'H:i' }}</small></div>
+      </div>
+
+      {% if ml_has_under_supported_classes %}
+      <div class="bam-section-note mt-3">
+        <i class="bi bi-exclamation-triangle"></i>
+        <div><strong>Historique encore incomplet :</strong> {{ ml_under_supported_classes|length }} cause(s) n’atteignent pas encore le minimum de {{ ml_minimum_examples_per_class }} validations. Elles ne sont pas utilisées pour produire des suggestions.</div>
+      </div>
+      {% endif %}
+
+      <div class="bam-section-note mt-3">
+        <i class="bi bi-lightbulb-fill"></i>
+        <div><strong>Lecture :</strong> le moteur déterministe constate l’écart. Le ML propose seulement une cause possible avec une probabilité. Une cause déjà fournie par une règle métier n’est pas répétée par le ML. Le superviseur garde la décision finale et choisit le ou les systèmes à corriger.</div>
+      </div>
+    {% else %}
+      <div class="ml-dashboard-empty">
+        <div class="ml-dashboard-orb"><i class="bi bi-diagram-3"></i></div>
+        <div>
+          <h3>Le modèle se construit avec vos validations causales</h3>
+          <p>{{ ml_trainable_examples }} exemple(s) causal(aux) exploitable(s) sur un minimum global de {{ ml_minimum_examples }}. Chaque cause doit être confirmée au moins {{ ml_minimum_examples_per_class }} fois et il faut au moins deux causes différentes.</p>
+        </div>
+      </div>
+      <div class="ml-dashboard-grid">
+        <div class="ml-dashboard-stat"><span>Exemples ML utiles</span><strong>{{ ml_trainable_examples }} / {{ ml_minimum_examples }}</strong><small>{{ ml_examples }} validation(s) humaine(s) au total</small></div>
+        <div class="ml-dashboard-stat"><span>Causes exploitables</span><strong>{{ ml_trainable_classes }}</strong><small>{{ ml_motif_classes }} cause(s) causale(s) observée(s)</small></div>
+        <div class="ml-dashboard-stat"><span>Modèles entraînés</span><strong>{{ ml_model_count }}</strong><small>historique des versions</small></div>
+        <div class="ml-dashboard-stat"><span>Décision</span><strong>Humaine</strong><small>toujours obligatoire</small></div>
+      </div>
+
+      {% if ml_examples and not ml_trainable_examples %}
+      <div class="bam-section-note mt-3">
+        <i class="bi bi-exclamation-triangle"></i>
+        <div><strong>Pourquoi le ML reste à 0 :</strong> vous avez {{ ml_examples }} validation(s), mais aucune n’a encore fourni une cause réelle exploitable. Lors de la validation d’un dossier, renseignez le bloc <strong>« Cause réelle connue ? »</strong> uniquement lorsque vous connaissez effectivement la cause. Sans cela, la validation reste utile au suivi métier mais n’entraîne pas le modèle.</div>
+      </div>
+      {% elif ml_excluded_examples %}
+      <div class="bam-section-note mt-3">
+        <i class="bi bi-info-circle"></i>
+        <div><strong>{{ ml_excluded_examples }} validation(s) non utilisée(s) par le ML.</strong> Elles correspondent à un constat technique, une décision à investiguer ou une validation sans cause causale exploitable.</div>
+      </div>
+      {% endif %}
+
+      <div class="bam-section-note mt-3">
+        <i class="bi bi-shield-check"></i>
+        <div><strong>Important :</strong> « valeur absente », « valeur différente » et « service absent » sont des constats du moteur de comparaison. Ils ne sont pas appris comme causes ML. Une cause isolée avec un seul exemple n’est pas utilisée non plus.</div>
+      </div>
+    {% endif %}
+  </div>
+</section>

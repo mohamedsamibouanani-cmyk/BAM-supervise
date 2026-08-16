@@ -1,0 +1,98 @@
+{% load static %}
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#244b9b">
+  <title>{% block title %}BAM Supervise{% endblock %}</title>
+  <link href="{% static 'vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet">
+  <link href="{% static 'vendor/bootstrap-icons/bootstrap-icons.min.css' %}" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'supervision/app.css' %}">
+  <link rel="stylesheet" href="{% static 'supervision/bam-theme.css' %}">
+  <link rel="stylesheet" href="{% static 'supervision/accessibility.css' %}">
+  {% block head %}{% endblock %}
+</head>
+<body class="{% if user.is_authenticated %}bam-app{% else %}bam-auth{% endif %}">
+<a class="skip-link" href="#main-content">Aller au contenu principal</a>
+{% if user.is_authenticated %}
+  <aside class="bam-sidebar d-none d-lg-flex" aria-label="Navigation principale">
+    <a class="brand" href="{% url 'dashboard' %}" aria-label="BAM Supervise — Tableau de bord">
+      <span class="brand-mark">BAM-S</span>
+      <span><strong>BAM Supervise</strong><small>Poste Maroc · Supervision</small></span>
+    </a>
+
+    <div class="sidebar-section-label">Supervision</div>
+    <nav class="sidebar-nav" aria-label="Supervision">
+      <a class="sidebar-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}" href="{% url 'dashboard' %}" {% if request.resolver_match.url_name == 'dashboard' %}aria-current="page"{% endif %}><i class="bi bi-grid-1x2-fill" aria-hidden="true"></i><span>Tableau de bord</span></a>
+      <a class="sidebar-link {% if request.resolver_match.url_name == 'campaign_create' %}active{% endif %}" href="{% url 'campaign_create' %}" {% if request.resolver_match.url_name == 'campaign_create' %}aria-current="page"{% endif %}><i class="bi bi-cloud-arrow-up-fill" aria-hidden="true"></i><span>Nouvelle campagne</span></a>
+      <a class="sidebar-link {% if request.resolver_match.url_name == 'campaign_list' %}active{% endif %}" href="{% url 'campaign_list' %}" {% if request.resolver_match.url_name == 'campaign_list' %}aria-current="page"{% endif %}><i class="bi bi-clock-history" aria-hidden="true"></i><span>Campagnes</span></a>
+      <a class="sidebar-link {% if 'anomaly' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'anomaly_list' %}" {% if 'anomaly' in request.resolver_match.url_name %}aria-current="page"{% endif %}><i class="bi bi-exclamation-diamond-fill" aria-hidden="true"></i><span>Anomalies</span></a>
+    </nav>
+
+    <div class="sidebar-section-label">Action & gouvernance</div>
+    <nav class="sidebar-nav" aria-label="Action et gouvernance">
+      <a class="sidebar-link {% if request.resolver_match.url_name == 'notification_list' %}active{% endif %}" href="{% url 'notification_list' %}" {% if request.resolver_match.url_name == 'notification_list' %}aria-current="page"{% endif %}><i class="bi bi-envelope-paper-fill" aria-hidden="true"></i><span>Notifications</span></a>
+      <a class="sidebar-link {% if request.resolver_match.url_name == 'group_list' or 'contact_' in request.resolver_match.url_name %}active{% endif %}" href="{% url 'group_list' %}" {% if request.resolver_match.url_name == 'group_list' or 'contact_' in request.resolver_match.url_name %}aria-current="page"{% endif %}><i class="bi bi-people-fill" aria-hidden="true"></i><span>Collaborateurs</span></a>
+      <a class="sidebar-link {% if request.resolver_match.url_name == 'activity_list' %}active{% endif %}" href="{% url 'activity_list' %}" {% if request.resolver_match.url_name == 'activity_list' %}aria-current="page"{% endif %}><i class="bi bi-journal-check" aria-hidden="true"></i><span>Activités</span></a>
+    </nav>
+
+    <div class="sidebar-spacer"></div>
+    <div class="sidebar-user">
+      <div class="user-avatar" aria-hidden="true">{{ user.username|slice:':1'|upper }}</div>
+      <div class="user-copy"><strong>{{ user.nom_complet|default:user.username }}</strong><span>Superviseur</span></div>
+      <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="icon-btn" type="submit" aria-label="Se déconnecter" title="Déconnexion"><i class="bi bi-box-arrow-right" aria-hidden="true"></i></button></form>
+    </div>
+  </aside>
+
+  <div class="offcanvas offcanvas-start bam-mobile-menu" tabindex="-1" id="mobileNav" aria-labelledby="mobileNavLabel">
+    <div class="offcanvas-header">
+      <a class="brand text-decoration-none" href="{% url 'dashboard' %}" id="mobileNavLabel"><span class="brand-mark">BAM-S</span><span><strong>BAM Supervise</strong><small>Poste Maroc · Supervision</small></span></a>
+      <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Fermer la navigation"></button>
+    </div>
+    <div class="offcanvas-body">
+      <nav class="sidebar-nav" aria-label="Navigation mobile">
+        <a class="sidebar-link" href="{% url 'dashboard' %}"><i class="bi bi-grid-1x2-fill" aria-hidden="true"></i>Tableau de bord</a>
+        <a class="sidebar-link" href="{% url 'campaign_create' %}"><i class="bi bi-cloud-arrow-up-fill" aria-hidden="true"></i>Nouvelle campagne</a>
+        <a class="sidebar-link" href="{% url 'campaign_list' %}"><i class="bi bi-clock-history" aria-hidden="true"></i>Campagnes</a>
+        <a class="sidebar-link" href="{% url 'anomaly_list' %}"><i class="bi bi-exclamation-diamond-fill" aria-hidden="true"></i>Anomalies</a>
+        <a class="sidebar-link" href="{% url 'notification_list' %}"><i class="bi bi-envelope-paper-fill" aria-hidden="true"></i>Notifications</a>
+        <a class="sidebar-link" href="{% url 'group_list' %}"><i class="bi bi-people-fill" aria-hidden="true"></i>Collaborateurs</a>
+        <a class="sidebar-link" href="{% url 'activity_list' %}"><i class="bi bi-journal-check" aria-hidden="true"></i>Activités</a>
+      </nav>
+    </div>
+  </div>
+
+  <div class="bam-main">
+    <header class="bam-topbar">
+      <button class="btn topbar-menu d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileNav" aria-controls="mobileNav" aria-label="Ouvrir la navigation"><i class="bi bi-list" aria-hidden="true"></i></button>
+      <div class="topbar-context">
+        <span class="live-dot" aria-hidden="true"></span>
+        <span>Supervision SMI · SICOM · SIBO</span>
+      </div>
+      <div class="topbar-actions">
+        <a class="topbar-action" href="{% url 'notification_list' %}" aria-label="Ouvrir les notifications" title="Notifications"><i class="bi bi-bell" aria-hidden="true"></i></a>
+        <span class="topbar-profile d-none d-md-inline-flex"><i class="bi bi-person-circle" aria-hidden="true"></i>{{ user.username }}</span>
+      </div>
+    </header>
+
+    <main class="bam-content" id="main-content" tabindex="-1">
+      <div class="bam-brand-rule" aria-hidden="true"></div>
+      {% for message in messages %}
+        <div class="alert alert-{{ message.tags|default:'info' }} bam-alert alert-dismissible fade show" role="alert">
+          {{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Fermer le message"></button>
+        </div>
+      {% endfor %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+{% else %}
+  <main class="auth-wrapper" id="main-content" tabindex="-1">
+    {% for message in messages %}<div class="alert alert-{{ message.tags|default:'info' }}" role="alert">{{ message }}</div>{% endfor %}
+    {% block auth_content %}{% block content_anon %}{% endblock %}{% endblock %}
+  </main>
+{% endif %}
+<script src="{% static 'vendor/bootstrap/bootstrap.bundle.min.js' %}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>
