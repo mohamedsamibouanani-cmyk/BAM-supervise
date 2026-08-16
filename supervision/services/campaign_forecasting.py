@@ -11,7 +11,7 @@ from sklearn.preprocessing import StandardScaler
 from supervision.models import Anomalie, CampagneSupervision
 
 
-MIN_CAMPAIGNS_FOR_FORECAST = 6
+MIN_CAMPAIGNS_FOR_FORECAST = 3
 FORECAST_LABELS = (
     ('ENVOI_ABSENT', 'Envoi absent'),
     ('SERVICE_ABSENT', 'Service absent'),
@@ -80,6 +80,11 @@ def campaign_forecast():
     Le moteur déterministe reste l'unique source de vérité après import. Les
     modèles n'interviennent qu'avant la campagne suivante et ne créent/modifient
     aucune anomalie.
+
+    Pour la démonstration BAM Supervise, la prévision démarre à partir de trois
+    campagnes terminées. Avec seulement trois campagnes, le résultat est donc une
+    estimation exploratoire : il devient progressivement plus robuste lorsque
+    l'historique s'allonge.
     """
     campaigns = _history()
     vectors = [_campaign_vector(campaign) for campaign in campaigns]
@@ -95,6 +100,7 @@ def campaign_forecast():
         'classification_ready': False,
         'classification_probability': None,
         'classification_dominant_type': None,
+        'forecast_maturity': 'EXPLORATOIRE' if len(campaigns) < 6 else 'RENFORCEE',
         **highlights,
     }
 
@@ -102,8 +108,9 @@ def campaign_forecast():
         return base
 
     # Une campagne constitue un point temporel. On apprend le passage t -> t+1.
-    # Les variables contiennent la répartition de la campagne t et son indice
-    # temporel pour capter récurrence et tendance.
+    # Avec trois campagnes, cela fournit deux transitions d'apprentissage : c'est
+    # suffisant pour une première estimation de démonstration, mais pas pour une
+    # validation statistique robuste.
     x = []
     y_regression = []
     y_classification = []
@@ -116,7 +123,6 @@ def campaign_forecast():
     x_array = np.asarray(x)
     y_regression_array = np.asarray(y_regression)
 
-    # Modèle 1 : Random Forest pour prévoir les volumes par type.
     regression_model = RandomForestRegressor(
         n_estimators=200,
         max_depth=4,
@@ -150,8 +156,6 @@ def campaign_forecast():
 
     rf_dominant = max(distribution, key=lambda row: row['count']) if distribution else None
 
-    # Modèle 2 : régression logistique pour prévoir directement le type dominant.
-    # Elle n'est entraînée que si l'historique comporte au moins deux classes.
     label_by_code = dict(FORECAST_LABELS)
     valid_classification_rows = [
         (features, label)
@@ -195,8 +199,6 @@ def campaign_forecast():
         ]
         classification_ready = True
 
-    # Le type affiché comme dominant privilégie la classification quand elle est
-    # statistiquement entraînable ; sinon le résultat Random Forest reste utilisé.
     dominant_type = (
         label_by_code.get(classification_code)
         if classification_ready
