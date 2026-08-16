@@ -3,7 +3,7 @@
     <div>
       <div class="page-eyebrow"><i class="bi bi-cpu"></i> Aide à la décision</div>
       <h2 class="panel-title" id="ml-panel-title">Machine Learning</h2>
-      <p class="panel-subtitle">Le modèle apprend des causes validées par le superviseur. Il ne réapprend pas le simple constat « valeur absente » ou « valeur différente », et ne choisit jamais le système à corriger.</p>
+      <p class="panel-subtitle">Le modèle apprend uniquement des causes réelles validées par le superviseur. Un simple constat technique ou une validation sans cause confirmée ne suffit pas.</p>
     </div>
     {% if ml_model %}
       <span class="status-badge status-RESOLUE"><i class="bi bi-check-circle-fill"></i> Modèle actif</span>
@@ -60,8 +60,8 @@
       <div class="ml-dashboard-empty">
         <div class="ml-dashboard-orb"><i class="bi bi-diagram-3"></i></div>
         <div>
-          <h3>Le modèle se construit avec vos validations</h3>
-          <p>{{ ml_trainable_examples }} exemple(s) causal(aux) exploitable(s) sur un minimum global de {{ ml_minimum_examples }}. Chaque cause doit également être confirmée au moins {{ ml_minimum_examples_per_class }} fois.</p>
+          <h3>Le modèle se construit avec vos validations causales</h3>
+          <p>{{ ml_trainable_examples }} exemple(s) causal(aux) exploitable(s) sur un minimum global de {{ ml_minimum_examples }}. Chaque cause doit être confirmée au moins {{ ml_minimum_examples_per_class }} fois et il faut au moins deux causes différentes.</p>
         </div>
       </div>
       <div class="ml-dashboard-grid">
@@ -70,6 +70,19 @@
         <div class="ml-dashboard-stat"><span>Modèles entraînés</span><strong>{{ ml_model_count }}</strong><small>historique des versions</small></div>
         <div class="ml-dashboard-stat"><span>Décision</span><strong>Humaine</strong><small>toujours obligatoire</small></div>
       </div>
+
+      {% if ml_examples and not ml_trainable_examples %}
+      <div class="bam-section-note mt-3">
+        <i class="bi bi-exclamation-triangle"></i>
+        <div><strong>Pourquoi le ML reste à 0 :</strong> vous avez {{ ml_examples }} validation(s), mais aucune n’a encore fourni une cause réelle exploitable. Lors de la validation d’un dossier, renseignez le bloc <strong>« Cause réelle connue ? »</strong> uniquement lorsque vous connaissez effectivement la cause. Sans cela, la validation reste utile au suivi métier mais n’entraîne pas le modèle.</div>
+      </div>
+      {% elif ml_excluded_examples %}
+      <div class="bam-section-note mt-3">
+        <i class="bi bi-info-circle"></i>
+        <div><strong>{{ ml_excluded_examples }} validation(s) non utilisée(s) par le ML.</strong> Elles correspondent à un constat technique, une décision à investiguer ou une validation sans cause causale exploitable.</div>
+      </div>
+      {% endif %}
+
       <div class="bam-section-note mt-3">
         <i class="bi bi-shield-check"></i>
         <div><strong>Important :</strong> « valeur absente », « valeur différente » et « service absent » sont des constats du moteur de comparaison. Ils ne sont pas appris comme causes ML. Une cause isolée avec un seul exemple n’est pas utilisée non plus.</div>
