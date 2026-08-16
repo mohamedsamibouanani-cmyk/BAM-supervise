@@ -2,7 +2,8 @@ from django.db import transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from .models import ExempleApprentissage
+from .models import Anomalie, ExempleApprentissage
+from .services.ml_inference import ensure_ml_predictions
 from .services.ml_training import safe_maybe_retrain_model
 
 
@@ -12,3 +13,11 @@ def retrain_after_learning_example(sender, instance, created, **kwargs):
         return
     # Le callback s'exécute seulement après validation définitive de la transaction.
     transaction.on_commit(safe_maybe_retrain_model)
+
+
+@receiver(post_save, sender=Anomalie)
+def add_ml_support_after_analysis(sender, instance, **kwargs):
+    """Complète le diagnostic déterministe par l'aide ML une fois l'analyse terminée."""
+    if instance.statut != Anomalie.Statut.ANALYSEE:
+        return
+    transaction.on_commit(lambda: ensure_ml_predictions(instance))
