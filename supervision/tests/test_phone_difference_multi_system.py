@@ -22,21 +22,22 @@ class PhoneDifferenceMultiSystemTests(TestCase):
             for system in Systeme.objects.filter(code_systeme__in=['SMI', 'SICOM', 'SIBO'])
         }
 
-    def _anomaly(self):
+    def _anomaly(self, values=None, format_flags=None, tag='valid'):
         campaign = CampagneSupervision.objects.create(superviseur=self.user)
         attribute = AttributDefinition.objects.get(code_attribut='TELEPHONE_NOTIFICATION')
-        values = {
+        values = values or {
             'SMI': '0611111111',
             'SICOM': '0611111111',
             'SIBO': '0699999999',
         }
+        format_flags = format_flags or {code: True for code in values}
         for code in ('SMI', 'SICOM', 'SIBO'):
             file_import = FichierImport.objects.create(
                 systeme=self.systems[code],
                 superviseur=self.user,
-                nom_fichier=f'PHONE_DIFF_{code}.xlsx',
-                chemin_stockage=f'/tmp/PHONE_DIFF_{code}.xlsx',
-                checksum_sha256=stable_hash('phone-difference', code),
+                nom_fichier=f'PHONE_DIFF_{tag}_{code}.xlsx',
+                chemin_stockage=f'/tmp/PHONE_DIFF_{tag}_{code}.xlsx',
+                checksum_sha256=stable_hash('phone-difference', tag, code),
                 statut_import='CHARGE',
                 nb_lignes_source=1,
                 nb_lignes_retenues=1,
@@ -48,18 +49,18 @@ class PhoneDifferenceMultiSystemTests(TestCase):
             )
             shipment = EnvoiSnapshot.objects.create(
                 fichier_import=file_import,
-                code_envoi='PHONE-DIFF-001',
-                num_commande='CMD-PHONE-DIFF-001',
+                code_envoi=f'PHONE-DIFF-{tag}',
+                num_commande=f'CMD-PHONE-DIFF-{tag}',
                 org_commerciale='2000',
                 ligne_premiere=2,
-                empreinte_envoi=stable_hash('PHONE-DIFF-001', code),
+                empreinte_envoi=stable_hash('PHONE-DIFF', tag, code),
             )
             service = ServiceSnapshot.objects.create(
                 envoi_snapshot=shipment,
                 code_service='30100',
                 libelle_service='Service colis',
                 ligne_source=2,
-                empreinte_service=stable_hash('PHONE-DIFF-001', code, '30100'),
+                empreinte_service=stable_hash('PHONE-DIFF', tag, code, '30100'),
             )
             ValeurAttributSnapshot.objects.create(
                 service_snapshot=service,
@@ -67,7 +68,7 @@ class PhoneDifferenceMultiSystemTests(TestCase):
                 valeur_brute=values[code],
                 valeur_normalisee=values[code],
                 est_vide=False,
-                format_source_conforme=True,
+                format_source_conforme=format_flags[code],
             )
 
         run_campaign(campaign)
@@ -78,14 +79,14 @@ class PhoneDifferenceMultiSystemTests(TestCase):
         )
 
     def _form(self, anomaly, targets):
-        prediction = anomaly.predictions.get(
+        prediction = anomaly.predictions.filter(
             explication__role_diagnostic='CONSTAT_ATTRIBUT_DIFFERENT'
-        )
+        ).first()
         return ValidationMotifForm(anomaly, data={
-            'prediction': prediction.pk,
-            'predictions': [prediction.pk],
+            'prediction': prediction.pk if prediction else '',
+            'predictions': [prediction.pk] if prediction else [],
             'multi_cause_mode': '1',
-            'motif_final': prediction.motif_id,
+            'motif_final': prediction.motif_id if prediction else '',
             'nouveau_motif': '',
             'decision': 'MODIFIE',
             'commentaire': '',
@@ -102,7 +103,7 @@ class PhoneDifferenceMultiSystemTests(TestCase):
         )
 
     def test_phone_difference_accepts_two_systems(self):
-        anomaly = self._anomaly()
+        anomaly = self._anomaly(tag='two')
         form = self._form(anomaly, ['SMI', 'SICOM'])
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(
@@ -111,10 +112,27 @@ class PhoneDifferenceMultiSystemTests(TestCase):
         )
 
     def test_phone_difference_accepts_all_three_systems(self):
-        anomaly = self._anomaly()
+        anomaly = self._anomaly(tag='three')
         form = self._form(anomaly, ['SMI', 'SICOM', 'SIBO'])
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(
             {system.code_systeme for system in form.cleaned_data['systemes_a_corriger_finaux']},
             {'SMI', 'SICOM', 'SIBO'},
+        )
+
+    def test_invalid_phone_difference_still_allows_system_choice(self):
+        anomaly = self._anomaly(
+            values={
+                'SMI': '06A1234567',
+                'SICOM': '0612345678',
+                'SIBO': '0612345678',
+            },
+            format_flags={'SMI': False, 'SICOM': True, 'SIBO': True},
+            tag='invalid-format',
+        )
+        form = self._form(anomaly, ['SMI'])
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(
+            [system.code_systeme for system in form.cleaned_data['systemes_a_corriger_finaux']],
+            ['SMI'],
         )
