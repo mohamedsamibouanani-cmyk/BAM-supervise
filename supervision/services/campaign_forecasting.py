@@ -39,8 +39,7 @@ def _campaign_vector(campaign):
 def _dominant_code(vector):
     if vector is None or len(vector) == 0 or float(np.sum(vector)) <= 0:
         return None
-    index = int(np.argmax(vector))
-    return FORECAST_LABELS[index][0]
+    return FORECAST_LABELS[int(np.argmax(vector))][0]
 
 
 def _history():
@@ -96,23 +95,29 @@ def _new_classification_model():
     ])
 
 
-def _rolling_evaluation(vectors):
-    """Évalue les modèles en chronologie réelle, sans utiliser le futur pour prédire le passé.
+def _evaluation_maturity(rf_count):
+    if rf_count <= 0:
+        return 'NON_DISPONIBLE', 'Non disponible'
+    if rf_count <= 2:
+        return 'EXPLORATOIRE', 'Exploratoire'
+    if rf_count <= 5:
+        return 'INTERMEDIAIRE', 'Intermédiaire'
+    return 'RENFORCEE', 'Renforcée'
 
-    À chaque étape, les modèles sont entraînés uniquement sur les campagnes antérieures
-    puis évalués sur la campagne suivante. Avec trois campagnes, Random Forest dispose
-    déjà d'un premier test hors apprentissage ; la classification peut nécessiter plus
-    d'historique si les classes antérieures ne sont pas assez variées.
-    """
+
+def _rolling_evaluation(vectors):
+    """Backtesting walk-forward : chaque campagne est prédite sans voir son futur."""
+    label_by_code = dict(FORECAST_LABELS)
     rf_actual_totals = []
     rf_predicted_totals = []
     rf_actual_vectors = []
     rf_predicted_vectors = []
     logistic_actual = []
     logistic_predicted = []
+    last_rf_backtest = None
+    last_classification_backtest = None
 
-    # target_index est l'indice de la campagne réellement observée à prédire.
-    # Il faut au minimum C1->C2 comme apprentissage pour tester la prédiction de C3.
+    # C1->C2 constitue le premier apprentissage ; C3 est donc le premier vrai test.
     for target_index in range(2, len(vectors)):
         x_train = []
         y_reg_train = []
@@ -130,13 +135,21 @@ def _rolling_evaluation(vectors):
 
         rf = _new_regression_model()
         rf.fit(np.asarray(x_train), np.asarray(y_reg_train))
-        rf_raw = rf.predict([test_features])[0]
-        rf_prediction = np.maximum(0, np.rint(rf_raw)).astype(int)
+        rf_prediction = np.maximum(0, np.rint(rf.predict([test_features])[0])).astype(int)
 
+        actual_total = int(np.sum(actual_vector))
+        predicted_total = int(np.sum(rf_prediction))
+        absolute_error = abs(actual_total - predicted_total)
         rf_actual_vectors.append(actual_vector)
         rf_predicted_vectors.append(rf_prediction)
-        rf_actual_totals.append(float(np.sum(actual_vector)))
-        rf_predicted_totals.append(float(np.sum(rf_prediction)))
+        rf_actual_totals.append(float(actual_total))
+        rf_predicted_totals.append(float(predicted_total))
+        last_rf_backtest = {
+            'campaign_number': target_index + 1,
+            'predicted_total': predicted_total,
+            'actual_total': actual_total,
+            'absolute_error': absolute_error,
+        }
 
         valid_rows = [
             (features, label)
@@ -151,17 +164,31 @@ def _rolling_evaluation(vectors):
                 np.asarray([row[0] for row in valid_rows]),
                 np.asarray(labels),
             )
-            logistic_predicted.append(str(classifier.predict([test_features])[0]))
+            predicted_class = str(classifier.predict([test_features])[0])
+            logistic_predicted.append(predicted_class)
             logistic_actual.append(actual_class)
+            last_classification_backtest = {
+                'campaign_number': target_index + 1,
+                'predicted_type': label_by_code.get(predicted_class, predicted_class),
+                'actual_type': label_by_code.get(actual_class, actual_class),
+                'correct': predicted_class == actual_class,
+            }
 
+    rf_count = len(rf_actual_totals)
+    maturity_code, maturity_label = _evaluation_maturity(rf_count)
     result = {
-        'rf_evaluation_count': len(rf_actual_totals),
+        'evaluation_method': 'Validation chronologique walk-forward',
+        'evaluation_maturity': maturity_code,
+        'evaluation_maturity_label': maturity_label,
+        'rf_evaluation_count': rf_count,
         'rf_mae_total': None,
         'rf_rmse_total': None,
         'rf_mae_by_type': None,
+        'last_rf_backtest': last_rf_backtest,
         'classification_evaluation_count': len(logistic_actual),
         'classification_accuracy': None,
         'classification_f1_macro': None,
+        'last_classification_backtest': last_classification_backtest,
     }
 
     if rf_actual_totals:
@@ -197,19 +224,11 @@ def _rolling_evaluation(vectors):
 
 
 def campaign_forecast():
-    """Prévoit la prochaine campagne avec deux modèles complémentaires.
+    """Prévoit la prochaine campagne sans intervenir dans la détection métier.
 
-    Random Forest = régression du nombre d'anomalies par type.
-    Régression logistique = classification du type d'anomalie dominant.
-
-    Le moteur déterministe reste l'unique source de vérité après import. Les
-    modèles n'interviennent qu'avant la campagne suivante et ne créent/modifient
-    aucune anomalie.
-
-    Pour la démonstration BAM Supervise, la prévision démarre à partir de trois
-    campagnes terminées. Avec seulement trois campagnes, le résultat est donc une
-    estimation exploratoire : il devient progressivement plus robuste lorsque
-    l'historique s'allonge.
+    Random Forest estime les volumes par type. La régression logistique estime le
+    type dominant. Le moteur déterministe SMI/SICOM/SIBO reste l'unique source de
+    vérité après import.
     """
     campaigns = _history()
     vectors = [_campaign_vector(campaign) for campaign in campaigns]
@@ -245,16 +264,16 @@ def campaign_forecast():
 
     x_array = np.asarray(x)
     y_regression_array = np.asarray(y_regression)
-
     regression_model = _new_regression_model()
     regression_model.fit(x_array, y_regression_array)
 
     next_features = _features(vectors, len(vectors) - 1)
-    raw_prediction = regression_model.predict([next_features])[0]
-    predicted = np.maximum(0, np.rint(raw_prediction)).astype(int)
+    predicted = np.maximum(
+        0,
+        np.rint(regression_model.predict([next_features])[0]),
+    ).astype(int)
 
-    # La fourchette s'appuie prioritairement sur l'erreur réellement observée
-    # en backtesting. À défaut, on garde une marge minimale d'une anomalie.
+    # La fourchette vient d'abord de l'erreur réellement observée en backtesting.
     backtest_mae = evaluation.get('rf_mae_total')
     margin = max(1, int(round(backtest_mae))) if backtest_mae is not None else 1
     predicted_total = int(predicted.sum())
@@ -266,7 +285,6 @@ def campaign_forecast():
         distribution.append({'code': code, 'label': label, 'count': value, 'percent': pct})
 
     rf_dominant = max(distribution, key=lambda row: row['count']) if distribution else None
-
     label_by_code = dict(FORECAST_LABELS)
     valid_classification_rows = [
         (features, label)
