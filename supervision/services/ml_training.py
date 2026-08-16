@@ -20,13 +20,21 @@ from supervision.models import ExempleApprentissage, ModeleML
 
 logger = logging.getLogger(__name__)
 
-# Pour la démonstration BAM Supervise, le premier modèle peut être entraîné dès
-# 6 décisions humaines éligibles, dès lors qu'au moins deux motifs différents
-# ont réellement été validés. Une classe peut donc démarrer avec un seul exemple :
-# le seuil global de 6 reste obligatoire et la validation humaine reste prioritaire.
+# Premier modèle de démonstration : 6 décisions réellement exploitables par le ML,
+# avec au moins deux causes différentes validées humainement.
 MIN_TRAINING_EXAMPLES = 6
 MIN_EXAMPLES_PER_CLASS = 1
 RETRAIN_INCREMENT = 5
+
+# Ces motifs décrivent l'écart déjà détecté par le moteur. Les apprendre ferait
+# simplement répéter "valeur absente" ou "valeur différente" au lieu d'apprendre
+# une cause. Ils restent dans l'historique métier mais sont exclus du dataset ML.
+NON_CAUSAL_MOTIF_CODES = {
+    'ATTRIBUT_NON_SYNCHRONISE',
+    'ATTRIBUT_DIFFERENT',
+    'SERVICE_ABSENT',
+    'MOTIF_INCONNU',
+}
 
 
 def _normalise_features(example):
@@ -42,20 +50,34 @@ def _normalise_features(example):
     }
 
 
-def training_status():
-    examples = list(
+def _eligible_examples():
+    return list(
         ExempleApprentissage.objects.filter(eligible=True)
         .select_related('motif_label')
         .order_by('pk')
     )
-    counts = Counter(example.motif_label.code_motif for example in examples)
+
+
+def _trainable_examples(examples):
+    return [
+        example for example in examples
+        if example.motif_label_id
+        and example.motif_label.code_motif not in NON_CAUSAL_MOTIF_CODES
+    ]
+
+
+def training_status():
+    eligible = _eligible_examples()
+    trainable = _trainable_examples(eligible)
+    counts = Counter(example.motif_label.code_motif for example in trainable)
     trainable_classes = [code for code, count in counts.items() if count >= MIN_EXAMPLES_PER_CLASS]
     trainable_examples = sum(counts[code] for code in trainable_classes)
     active_model = ModeleML.objects.filter(actif=True).order_by('-entraine_le').first()
     ready = trainable_examples >= MIN_TRAINING_EXAMPLES and len(trainable_classes) >= 2
     return {
-        'eligible_examples': len(examples),
+        'eligible_examples': len(eligible),
         'trainable_examples': trainable_examples,
+        'excluded_examples': len(eligible) - len(trainable),
         'motif_classes': len(counts),
         'trainable_classes': len(trainable_classes),
         'minimum_examples': MIN_TRAINING_EXAMPLES,
@@ -75,21 +97,12 @@ def _should_retrain(status):
 
 
 def maybe_retrain_model():
-    """Réentraîne le modèle si l'historique validé est suffisant.
-
-    Cette fonction est volontairement sans effet si le seuil métier n'est pas
-    atteint. Une erreur d'entraînement est journalisée et ne doit jamais annuler
-    une décision déjà validée par le superviseur.
-    """
+    """Entraîne le modèle uniquement sur des causes humaines exploitables."""
     status = training_status()
     if not _should_retrain(status):
         return None
 
-    examples = list(
-        ExempleApprentissage.objects.filter(eligible=True)
-        .select_related('motif_label')
-        .order_by('pk')
-    )
+    examples = _trainable_examples(_eligible_examples())
     class_counts = Counter(example.motif_label.code_motif for example in examples)
     allowed = {
         code for code, count in class_counts.items()
@@ -109,9 +122,6 @@ def maybe_retrain_model():
 
     metrics = {}
     test_size = max(len(allowed), round(len(examples) * 0.25))
-    # Un jeu de validation stratifié n'est pertinent que si chaque classe peut
-    # fournir au moins un exemple au train et au test. Sinon on entraîne tout de
-    # même le modèle final sur l'ensemble des décisions réelles disponibles.
     can_holdout = (
         test_size < len(examples)
         and all(class_counts[code] >= 2 for code in allowed)
@@ -131,11 +141,10 @@ def maybe_retrain_model():
         except ValueError:
             pass
 
-    # Le modèle actif final est toujours ajusté sur la totalité des décisions
-    # humaines éligibles, après l'évaluation éventuelle ci-dessus.
     pipeline.fit(x, y)
     metrics['nb_classes'] = len(set(y))
     metrics['classes'] = sorted(set(y))
+    metrics['motifs_non_causaux_exclus'] = sorted(NON_CAUSAL_MOTIF_CODES)
 
     model_dir = Path(settings.MEDIA_ROOT) / 'ml_models'
     model_dir.mkdir(parents=True, exist_ok=True)
