@@ -12,7 +12,7 @@ from supervision.models import (
     ValidationMotif,
 )
 from supervision.services.ml_inference import ensure_ml_predictions
-from supervision.services.ml_training import maybe_retrain_model
+from supervision.services.ml_training import maybe_retrain_model, training_status
 
 
 class _PipelineWithDuplicateAndCause:
@@ -75,6 +75,26 @@ class MLExpertHardeningTests(TestCase):
             empreinte_anomalie=(code.replace('-', '') + '0' * 64)[:64],
         )
 
+    def _learning_example(self, index, motif):
+        anomaly = self._anomaly(f'ML-TRAIN-{index}')
+        validation = ValidationMotif.objects.create(
+            anomalie=anomaly, motif_final=motif,
+            systeme_a_corriger_final=self.system,
+            superviseur=self.user,
+            decision=ValidationMotif.Decision.MODIFIE,
+            version_validation=1, est_finale=True,
+        )
+        return ExempleApprentissage.objects.create(
+            validation=validation, motif_label=motif,
+            systeme_a_corriger_label=self.system,
+            caracteristiques={
+                'niveau': 'ATTRIBUT', 'type_ecart': 'DIFFERENT',
+                'service': '30100', 'attribut': 'TELEPHONE_NOTIFICATION',
+                'systeme_ecart': 'SICOM',
+            },
+            eligible=True,
+        )
+
     @patch('supervision.services.ml_inference.Path.exists', return_value=True)
     @patch('supervision.services.ml_inference.joblib.load', return_value=_PipelineWithDuplicateAndCause())
     def test_iteration_1_ml_ne_duplique_pas_une_cause_deja_donnee_par_regle(self, _load, _exists):
@@ -115,7 +135,7 @@ class MLExpertHardeningTests(TestCase):
             ).exists()
         )
 
-    def test_iteration_3_le_modele_conserve_la_repartition_des_causes_et_signale_les_singletons(self):
+    def test_iteration_3_une_cause_isolee_est_bloquee_jusqu_a_sa_deuxieme_validation(self):
         motif_a = Motif.objects.create(
             code_motif='CAUSE_TRAIN_A', libelle='Cause A',
             niveau_applicable='ATTRIBUT', categorie='TEST'
@@ -126,26 +146,21 @@ class MLExpertHardeningTests(TestCase):
         )
         ModeleML.objects.all().delete()
 
-        for index in range(6):
-            motif = motif_a if index < 5 else motif_b
-            anomaly = self._anomaly(f'ML-TRAIN-{index}')
-            validation = ValidationMotif.objects.create(
-                anomalie=anomaly, motif_final=motif,
-                systeme_a_corriger_final=self.system,
-                superviseur=self.user,
-                decision=ValidationMotif.Decision.MODIFIE,
-                version_validation=1, est_finale=True,
-            )
-            ExempleApprentissage.objects.create(
-                validation=validation, motif_label=motif,
-                systeme_a_corriger_label=self.system,
-                caracteristiques={
-                    'niveau': 'ATTRIBUT', 'type_ecart': 'DIFFERENT',
-                    'service': '30100', 'attribut': 'TELEPHONE_NOTIFICATION',
-                    'systeme_ecart': 'SICOM',
-                },
-                eligible=True,
-            )
+        for index in range(5):
+            self._learning_example(index, motif_a)
+        self._learning_example(5, motif_b)
+
+        status = training_status()
+        self.assertFalse(status['ready'])
+        self.assertIn('CAUSE_TRAIN_B', status['under_supported_classes'])
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with override_settings(MEDIA_ROOT=Path(tmpdir)):
+                self.assertIsNone(maybe_retrain_model())
+
+        self._learning_example(6, motif_b)
+        status = training_status()
+        self.assertTrue(status['ready'])
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with override_settings(MEDIA_ROOT=Path(tmpdir)):
@@ -153,6 +168,5 @@ class MLExpertHardeningTests(TestCase):
 
         self.assertIsNotNone(model)
         self.assertEqual(model.metriques['class_counts']['CAUSE_TRAIN_A'], 5)
-        self.assertEqual(model.metriques['class_counts']['CAUSE_TRAIN_B'], 1)
-        self.assertEqual(model.metriques['classes_avec_un_seul_exemple'], ['CAUSE_TRAIN_B'])
-        self.assertFalse(model.metriques['jeu_validation_disponible'])
+        self.assertEqual(model.metriques['class_counts']['CAUSE_TRAIN_B'], 2)
+        self.assertEqual(model.metriques['support_minimum_par_cause'], 2)
