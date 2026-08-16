@@ -9,17 +9,10 @@ from django.db.models import Max
 
 from supervision.models import Anomalie, ModeleML, Motif, PredictionMotif
 
+from .ml_policy import NON_CAUSAL_MOTIF_CODES, confidence_band
+
 
 logger = logging.getLogger(__name__)
-
-# Ces libellés décrivent le constat technique lui-même, pas une cause métier.
-# Le ML ne doit donc jamais les reproposer comme s'il avait découvert une cause.
-_NON_CAUSAL_MOTIF_CODES = {
-    'ATTRIBUT_NON_SYNCHRONISE',
-    'ATTRIBUT_DIFFERENT',
-    'SERVICE_ABSENT',
-    'MOTIF_INCONNU',
-}
 
 
 def _feature_dict(anomaly):
@@ -37,14 +30,9 @@ def _feature_dict(anomaly):
 
 
 def _motif_is_compatible(anomaly, motif):
-    """N'autorise que de vraies causes compatibles avec l'anomalie courante.
-
-    Le constat déterministe (envoi/service/valeur absente ou différente) reste
-    séparé de l'aide ML. Le modèle doit proposer une cause apprise, jamais répéter
-    le type d'écart déjà observé par le moteur de comparaison.
-    """
+    """N'autorise que de vraies causes compatibles avec l'anomalie courante."""
     code = str(motif.code_motif or '').strip().upper()
-    if code in _NON_CAUSAL_MOTIF_CODES:
+    if code in NON_CAUSAL_MOTIF_CODES:
         return False
 
     motif_level = str(motif.niveau_applicable or '').strip().upper()
@@ -55,12 +43,29 @@ def _motif_is_compatible(anomaly, motif):
     return True
 
 
+def _existing_non_ml_motif_codes(anomaly):
+    """Évite qu'une règle et le ML répètent exactement la même cause."""
+    return set(
+        anomaly.predictions.exclude(source_prediction=PredictionMotif.Source.ML)
+        .values_list('motif__code_motif', flat=True)
+    )
+
+
+def _class_support(model, code_motif):
+    metrics = model.metriques or {}
+    counts = metrics.get('class_counts') or {}
+    try:
+        return int(counts.get(str(code_motif), 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def ensure_ml_predictions(anomaly, max_suggestions=2):
     """Ajoute des suggestions causales du modèle actif.
 
-    Les règles métier et les cas appris restent des sources séparées. Seules les
-    lignes ``source_prediction=ML`` portent une probabilité affichable. Le ML ne
-    choisit jamais le système à corriger : cette décision appartient au superviseur.
+    Le moteur déterministe constate l'écart. Le ML propose uniquement une cause
+    possible avec sa vraie probabilité. Il ne choisit jamais le système à corriger
+    et ne duplique pas une cause déjà fournie par une règle métier.
     """
     if anomaly.niveau == Anomalie.Niveau.SERVICE:
         return []
@@ -74,13 +79,18 @@ def ensure_ml_predictions(anomaly, max_suggestions=2):
     if model is None:
         return []
 
+    deterministic_codes = _existing_non_ml_motif_codes(anomaly)
     existing = list(
         anomaly.predictions.filter(
             source_prediction=PredictionMotif.Source.ML,
             modele=model,
         ).select_related('motif').order_by('rang')
     )
-    compatible_existing = [p for p in existing if _motif_is_compatible(anomaly, p.motif)]
+    compatible_existing = [
+        p for p in existing
+        if _motif_is_compatible(anomaly, p.motif)
+        and p.motif.code_motif not in deterministic_codes
+    ]
     incompatible_ids = [p.pk for p in existing if p not in compatible_existing]
     if incompatible_ids:
         anomaly.predictions.filter(pk__in=incompatible_ids).delete()
@@ -112,12 +122,17 @@ def ensure_ml_predictions(anomaly, max_suggestions=2):
         for code_motif, probability in ordered:
             if len(created) >= max_suggestions:
                 break
+            code_motif = str(code_motif)
+            if code_motif in deterministic_codes:
+                continue
             motif = Motif.objects.filter(
-                code_motif=str(code_motif), actif=True
+                code_motif=code_motif, actif=True
             ).first()
             if motif is None or not _motif_is_compatible(anomaly, motif):
                 continue
 
+            probability_value = float(probability)
+            support = _class_support(model, code_motif)
             last_rank += 1
             created.append(
                 PredictionMotif.objects.create(
@@ -125,11 +140,9 @@ def ensure_ml_predictions(anomaly, max_suggestions=2):
                     source_prediction=PredictionMotif.Source.ML,
                     modele=model,
                     motif=motif,
-                    # Le système observé n'est pas forcément le système responsable.
-                    # Le ML suggère la cause uniquement ; le superviseur choisit la cible.
                     systeme_a_corriger_predit=None,
                     rang=last_rank,
-                    score_confiance=Decimal(str(round(float(probability), 4))),
+                    score_confiance=Decimal(str(round(probability_value, 4))),
                     explication={
                         'message': motif.libelle,
                         'features': features,
@@ -137,6 +150,9 @@ def ensure_ml_predictions(anomaly, max_suggestions=2):
                         'systeme_a_corriger_a_confirmer': True,
                         'role_diagnostic': 'SUGGESTION_CAUSE_ML',
                         'origine': 'MODELE_ML_ACTIF',
+                        'version_modele': model.version_modele,
+                        'niveau_confiance': confidence_band(probability_value),
+                        'nb_exemples_cause': support,
                     },
                 )
             )
