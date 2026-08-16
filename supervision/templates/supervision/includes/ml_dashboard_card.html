@@ -29,6 +29,12 @@
             <strong>{{ ml_accuracy_percent }}%</strong>
             {% if ml_validation_size %}<small>{{ ml_validation_size }} cas de validation</small>{% endif %}
           </div>
+        {% else %}
+          <div class="ml-dashboard-probability" title="Pas assez d'exemples par cause pour constituer un jeu de validation séparé">
+            <span>Précision ML</span>
+            <strong>Non mesurée</strong>
+            <small>historique encore limité</small>
+          </div>
         {% endif %}
       </div>
 
@@ -39,9 +45,16 @@
         <div class="ml-dashboard-stat"><span>Dernier entraînement</span><strong>{{ ml_model.entraine_le|date:'d/m/Y' }}</strong><small>{{ ml_model.entraine_le|date:'H:i' }}</small></div>
       </div>
 
+      {% if ml_has_singleton_classes %}
+      <div class="bam-section-note mt-3">
+        <i class="bi bi-exclamation-triangle"></i>
+        <div><strong>Modèle encore jeune :</strong> {{ ml_singleton_classes|length }} cause(s) ne disposent encore que d’un seul exemple. Les probabilités restent indicatives jusqu’à l’enrichissement de l’historique.</div>
+      </div>
+      {% endif %}
+
       <div class="bam-section-note mt-3">
         <i class="bi bi-lightbulb-fill"></i>
-        <div><strong>Lecture :</strong> le moteur déterministe constate l’écart. Le ML propose seulement une cause possible avec une probabilité. Le superviseur garde la décision finale et choisit le ou les systèmes à corriger.</div>
+        <div><strong>Lecture :</strong> le moteur déterministe constate l’écart. Le ML propose seulement une cause possible avec une probabilité. Une même cause déjà fournie par une règle métier n’est pas répétée par le ML. Le superviseur garde la décision finale et choisit le ou les systèmes à corriger.</div>
       </div>
     {% else %}
       <div class="ml-dashboard-empty">
