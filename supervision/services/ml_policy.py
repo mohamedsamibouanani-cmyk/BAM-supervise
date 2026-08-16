@@ -5,14 +5,19 @@ from __future__ import annotations
 # connaissance apprise suffisamment étayée.
 MIN_CAUSE_SUPPORT = 2
 
-# Motifs qui décrivent le constat déjà produit par le moteur déterministe.
-# Ils appartiennent à l'historique métier mais ne sont ni des causes à apprendre,
-# ni des suggestions que le ML doit reproposer au superviseur.
+# Motifs qui décrivent l'écart ou un symptôme déjà observable dans les données.
+# Ils restent utiles au diagnostic et à l'historique, mais ne doivent pas être
+# appris comme causes ML. Le ML doit apprendre le POURQUOI, pas répéter le constat.
 NON_CAUSAL_MOTIF_CODES = frozenset({
     'ATTRIBUT_NON_SYNCHRONISE',
     'ATTRIBUT_DIFFERENT',
     'SERVICE_ABSENT',
     'MOTIF_INCONNU',
+    'CHAMP_OBLIGATOIRE_VIDE',
+    'CHAMP_OBLIGATOIRE_ENVOI_ABSENT',
+    'CHAMP_SOURCE_MANQUANT',
+    'VILLE_MANQUANTE',
+    'TELEPHONE_MANQUANT',
 })
 
 
