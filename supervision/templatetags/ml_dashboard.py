@@ -19,6 +19,7 @@ def ml_dashboard_card():
 
     metrics = model.metriques or {} if model else {}
     accuracy = metrics.get('accuracy_validation')
+    singleton_classes = metrics.get('classes_avec_un_seul_exemple') or status.get('singleton_classes') or []
     return {
         'ml_model': model,
         'ml_ready': status['ready'],
@@ -28,8 +29,11 @@ def ml_dashboard_card():
         'ml_minimum_examples': status['minimum_examples'],
         'ml_motif_classes': status['motif_classes'],
         'ml_trainable_classes': status['trainable_classes'],
+        'ml_singleton_classes': singleton_classes,
+        'ml_has_singleton_classes': bool(singleton_classes),
         'ml_accuracy_percent': round(float(accuracy) * 100, 1) if accuracy is not None else None,
         'ml_validation_size': metrics.get('nb_validation'),
+        'ml_has_validation_metric': accuracy is not None,
         'ml_prediction_count': PredictionMotif.objects.filter(
             source_prediction=PredictionMotif.Source.ML
         ).count(),
