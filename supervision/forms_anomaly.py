@@ -105,18 +105,16 @@ class MultiCauseValidationForm(forms.Form):
                     difference_constat = candidate
                     break
         if difference_constat:
-            # Pour une différence de valeur, la valeur de référence n'est pas encore
-            # déterminée automatiquement. Le superviseur peut donc confirmer un seul
-            # système à corriger (2 systèmes portent la référence) OU deux systèmes
-            # à corriger (1 seul système porte la référence).
+            # Pour une différence de valeur, BAM Supervise ne connaît pas la valeur
+            # métier de référence. Le superviseur peut donc choisir librement 1, 2
+            # ou les 3 systèmes comme responsables de la correction.
             self.fields['systeme_a_corriger_final'] = forms.ModelMultipleChoiceField(
                 queryset=Systeme.objects.filter(actif=True).order_by('ordre_comparaison'),
                 required=True,
-                label='Système(s) à corriger (1 ou 2)',
+                label='Système(s) à corriger (1 à 3)',
                 widget=forms.CheckboxSelectMultiple,
                 help_text=(
-                    'Sélectionnez 1 système si les deux autres portent la valeur de référence, '
-                    'ou 2 systèmes si le troisième porte la valeur de référence.'
+                    'Sélectionnez un, deux ou les trois systèmes selon la décision métier du superviseur.'
                 ),
             )
             self.fields['decision'].choices = [
@@ -126,8 +124,6 @@ class MultiCauseValidationForm(forms.Form):
             self.fields['decision'].initial = 'MODIFIE'
             self.initial.pop('systeme_a_corriger_final', None)
             self.fields['systeme_a_corriger_final'].initial = []
-            # La cause reste un constat technique tant que la règle métier de
-            # sélection de la valeur de référence n'a pas été validée.
             self.fields['motif_final'].widget = forms.HiddenInput()
             self.fields['nouveau_motif'].widget = forms.HiddenInput()
 
@@ -251,12 +247,7 @@ class MultiCauseValidationForm(forms.Form):
         if not systems:
             raise forms.ValidationError(
                 'Choisissez au moins un système à corriger. '
-                'BAM Supervise ne détermine pas encore automatiquement la valeur de référence.'
-            )
-        if len(systems) > 2:
-            raise forms.ValidationError(
-                'Sélectionnez au maximum deux systèmes à corriger : au moins un des trois '
-                'systèmes doit rester la référence de la valeur validée.'
+                'BAM Supervise ne détermine pas automatiquement la valeur de référence.'
             )
 
         cleaned['systemes_a_corriger_finaux'] = systems
