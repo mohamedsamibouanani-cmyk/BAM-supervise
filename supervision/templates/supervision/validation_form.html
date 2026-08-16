@@ -20,26 +20,10 @@
     </div>
   </header>
 
-  {% if anomaly.niveau != 'SERVICE' %}
   <div class="bam-section-note mb-3">
-    <i class="bi bi-cpu"></i>
-    <div><strong>Lecture des propositions :</strong> un pourcentage représente uniquement une probabilité calculée par un modèle de Machine Learning. Les règles métier et les cas similaires validés sont présentés sans pourcentage.</div>
+    <i class="bi bi-shield-check"></i>
+    <div><strong>Décision métier :</strong> le dossier est traité à partir du moteur de comparaison, des règles métier et de la validation du superviseur. Le Machine Learning est réservé aux prévisions des campagnes futures.</div>
   </div>
-
-  <div class="bam-section-note mb-3" aria-live="polite">
-    <i class="bi {% if ml_state == 'SUGGESTIONS' %}bi-stars{% elif ml_state == 'LEARNING' %}bi-database{% else %}bi-cpu{% endif %}"></i>
-    <div>
-      <strong>
-        {% if ml_state == 'SUGGESTIONS' %}Machine Learning actif
-        {% elif ml_state == 'NO_COMPATIBLE_SUGGESTION' %}Machine Learning : aucune cause compatible
-        {% elif ml_state == 'TRAINING_AVAILABLE' %}Machine Learning : entraînement disponible
-        {% else %}Machine Learning en apprentissage{% endif %}
-      </strong>
-      <div>{{ ml_state_message }}</div>
-      {% if ml_model %}<small>Modèle : {{ ml_model.version_modele }}</small>{% endif %}
-    </div>
-  </div>
-  {% endif %}
 
   <section class="validation-card" aria-labelledby="validation-diagnostic-title">
     <form method="post" id="validationForm" data-anomaly-level="{{ anomaly.niveau }}">{% csrf_token %}
@@ -56,7 +40,7 @@
               {% if anomaly.niveau == 'SERVICE' %}
                 <p>Confirmez simplement le système où le service manque.</p>
               {% elif anomaly.niveau == 'ATTRIBUT' %}
-                <p>Le constat vient du moteur de comparaison. Une proposition marquée « ML » est une cause apprise, jamais le constat lui-même.</p>
+                <p>Confirmez le constat de synchronisation et le ou les systèmes à corriger selon votre décision métier.</p>
               {% else %}
                 <p>Gardez uniquement les causes que vous confirmez. Aucun mail n’est envoyé avant votre validation.</p>
               {% endif %}
@@ -85,13 +69,6 @@
               <div class="validation-cause-options">{{ form.predictions }}</div>
             </fieldset>
             {% if form.predictions.errors %}<div class="text-danger small mt-2" role="alert">{{ form.predictions.errors }}</div>{% endif %}
-
-            {% if ml_predictions %}
-            <div class="bam-section-note mt-3">
-              <i class="bi bi-stars"></i>
-              <div><strong>{{ ml_predictions|length }} proposition(s) ML présente(s)</strong><br><small>Seules ces propositions portent une probabilité. Elles restent soumises à la validation du superviseur.</small></div>
-            </div>
-            {% endif %}
 
             <div class="validation-selection-bar" id="selectionSummary" hidden aria-live="polite" aria-atomic="true">
               <strong id="selectedCountText">Sélection en cours</strong>
@@ -146,45 +123,13 @@
               <label class="form-label" for="{{ form.nouveau_motif.id_for_label }}">Nouvelle cause</label>
               {{ form.nouveau_motif }}
               {% if form.nouveau_motif.errors %}<div class="text-danger small mt-1" role="alert">{{ form.nouveau_motif.errors }}</div>{% endif %}
-              <small>Une cause confirmée pourra être réutilisée pour des dossiers similaires et alimenter la base d’apprentissage.</small>
+              <small>La cause confirmée sera conservée dans l’historique métier du dossier.</small>
             </div>
           {% else %}
             <div hidden>{{ form.motif_final }}{{ form.nouveau_motif }}</div>
           {% endif %}
         </div>
       </section>
-
-      {% if anomaly.niveau != 'SERVICE' %}
-      <details class="validation-comment" {% if selected_learning_cause_id or new_learning_cause_label %}open{% endif %}>
-        <summary>
-          <span><i class="bi bi-lightbulb" aria-hidden="true"></i> Cause réelle connue ?</span>
-          <small>Facultatif · améliore le ML</small>
-        </summary>
-        <div class="validation-comment-body">
-          <div class="bam-section-note mb-3">
-            <i class="bi bi-shield-check"></i>
-            <div><strong>Ne renseignez cette partie que si la cause est réellement confirmée.</strong><br><small>Le constat « valeur absente / différente » n’est pas une cause ML. La cause choisie ci-dessous devient un exemple d’apprentissage humain.</small></div>
-          </div>
-
-          <label class="form-label" for="cause_apprentissage">Cause confirmée</label>
-          <select class="form-select" id="cause_apprentissage" name="cause_apprentissage">
-            <option value="">— Cause non connue / ne pas alimenter le ML —</option>
-            {% for cause in learning_causes %}
-              <option value="{{ cause.pk }}" {% if selected_learning_cause_id|stringformat:'s' == cause.pk|stringformat:'s' %}selected{% endif %}>{{ cause.libelle }}</option>
-            {% endfor %}
-          </select>
-          <small class="d-block mt-1">Une cause doit être confirmée au moins deux fois et le ML doit disposer d’au moins six exemples causaux avant entraînement.</small>
-
-          {% if anomaly.niveau != 'ATTRIBUT' or anomaly.type_ecart != 'DIFFERENT' %}
-          <div class="mt-3">
-            <label class="form-label" for="nouvelle_cause_apprentissage">Autre cause confirmée</label>
-            <input class="form-control" id="nouvelle_cause_apprentissage" name="nouvelle_cause_apprentissage" maxlength="255" value="{{ new_learning_cause_label }}" placeholder="Saisissez une cause uniquement si elle est réellement connue">
-            <small>Cette nouvelle cause sera créée dans le référentiel d’apprentissage après validation.</small>
-          </div>
-          {% endif %}
-        </div>
-      </details>
-      {% endif %}
 
       <details class="validation-comment" {% if form.commentaire.errors or form.commentaire.value %}open{% endif %}>
         <summary><span><i class="bi bi-chat-left-text" aria-hidden="true"></i> Ajouter une note</span><small>Facultatif</small></summary>
@@ -208,7 +153,7 @@
 
 <div id="predictionMetadata" hidden>
   {% for prediction in anomaly.predictions.all %}
-    <span data-prediction-id="{{ prediction.pk }}" data-motif-id="{{ prediction.motif_id }}" data-motif="{% if anomaly.niveau == 'ENVOI' and prediction.explication.message %}{{ prediction.explication.message }}{% else %}{{ prediction.motif.libelle }}{% endif %}" data-score="{% if prediction.source_prediction == 'ML' %}{% widthratio prediction.score_confiance 1 100 %}{% endif %}" data-source="{{ prediction.source_prediction }}" data-system-id="{{ prediction.systeme_a_corriger_predit_id|default:'' }}" data-targets="{% if prediction.explication.systemes_a_corriger %}{{ prediction.explication.systemes_a_corriger|join:',' }}{% elif prediction.systeme_a_corriger_predit %}{{ prediction.systeme_a_corriger_predit.code_systeme }}{% endif %}"></span>
+    <span data-prediction-id="{{ prediction.pk }}" data-motif-id="{{ prediction.motif_id }}" data-motif="{% if anomaly.niveau == 'ENVOI' and prediction.explication.message %}{{ prediction.explication.message }}{% else %}{{ prediction.motif.libelle }}{% endif %}" data-system-id="{{ prediction.systeme_a_corriger_predit_id|default:'' }}" data-targets="{% if prediction.explication.systemes_a_corriger %}{{ prediction.explication.systemes_a_corriger|join:',' }}{% elif prediction.systeme_a_corriger_predit %}{{ prediction.systeme_a_corriger_predit.code_systeme }}{% endif %}"></span>
   {% endfor %}
 </div>
 {% endblock %}
