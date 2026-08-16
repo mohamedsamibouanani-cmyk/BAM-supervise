@@ -102,7 +102,7 @@
           <div>
             <span class="validation-kicker">Précision</span>
             <h2 id="adjustmentTitle">{% if anomaly.niveau == 'SERVICE' %}Ajuster le système concerné{% else %}Ajuster le diagnostic{% endif %}</h2>
-            <p id="adjustmentHint">{% if anomaly.niveau == 'SERVICE' %}Choisissez uniquement le système concerné.{% else %}Définissez la cause et le système responsable uniquement si vous disposez d’un élément métier fiable.{% endif %}</p>
+            <p id="adjustmentHint">{% if anomaly.niveau == 'SERVICE' %}Choisissez uniquement le système concerné.{% elif anomaly.niveau == 'ATTRIBUT' and anomaly.type_ecart == 'DIFFERENT' %}Choisissez le ou les systèmes à corriger.{% else %}Définissez la cause et le système responsable uniquement si vous disposez d’un élément métier fiable.{% endif %}</p>
           </div>
         </div>
 
@@ -112,7 +112,9 @@
             {{ form.systeme_a_corriger_final }}
             {% if form.systeme_a_corriger_final.errors %}<div class="text-danger small mt-1" role="alert">{{ form.systeme_a_corriger_final.errors }}</div>{% endif %}
           </div>
-          {% if anomaly.niveau != 'SERVICE' %}
+          {% if anomaly.niveau == 'ATTRIBUT' and anomaly.type_ecart == 'DIFFERENT' %}
+            <div hidden>{{ form.motif_final }}{{ form.nouveau_motif }}</div>
+          {% elif anomaly.niveau != 'SERVICE' %}
             <div class="validation-motif-field">
               <label class="form-label" for="{{ form.motif_final.id_for_label }}">Cause retenue</label>
               {{ form.motif_final }}
