@@ -62,30 +62,28 @@ class CampaignForecastingTests(TestCase):
             add(Anomalie.Niveau.ATTRIBUT, Anomalie.TypeEcart.DIFFERENT, self.sibo, self.phone)
         return campaign
 
-    def test_iteration_1_historique_insuffisant_ne_fabrique_aucune_prediction(self):
-        for index in range(1, 4):
+    def test_iteration_1_deux_campagnes_restent_insuffisantes(self):
+        for index in range(1, 3):
             self._campaign(index, envoi=1, attr_diff=index)
 
         result = campaign_forecast()
 
         self.assertFalse(result['ready'])
-        self.assertEqual(result['campaign_count'], 3)
+        self.assertEqual(result['campaign_count'], 2)
+        self.assertEqual(result['minimum_campaigns'], 3)
         self.assertEqual(result['minimum_campaigns'], MIN_CAMPAIGNS_FOR_FORECAST)
-        self.assertGreater(result['remaining_campaigns'], 0)
+        self.assertEqual(result['remaining_campaigns'], 1)
         self.assertEqual(result['method'], 'Random Forest + Régression logistique')
         self.assertEqual(ModeleML.objects.count(), 0)
         self.assertEqual(PredictionMotif.objects.count(), 0)
 
-    def test_iteration_2_six_campagnes_produisent_deux_modeles_complementaires(self):
-        # Les dominantes changent volontairement pour rendre la classification
-        # logistique réellement entraînable sur au moins deux classes.
+    def test_iteration_2_trois_campagnes_produisent_les_deux_modeles(self):
+        # Les campagnes 2 et 3 ont deux dominantes différentes, ce qui permet
+        # d'entraîner la régression logistique sur les deux transitions disponibles.
         patterns = [
-            (4, 1, 1, 0),  # envoi dominant
-            (1, 1, 1, 5),  # attribut différent dominant
-            (5, 1, 1, 0),  # envoi dominant
-            (1, 1, 1, 4),  # attribut différent dominant
-            (4, 0, 1, 0),  # envoi dominant
-            (1, 0, 1, 5),  # attribut différent dominant
+            (4, 1, 1, 0),  # campagne 1 : envoi dominant
+            (1, 1, 1, 5),  # campagne 2 : attribut différent dominant
+            (5, 1, 1, 0),  # campagne 3 : envoi dominant
         ]
         for index, values in enumerate(patterns, start=1):
             self._campaign(index, *values)
@@ -93,7 +91,8 @@ class CampaignForecastingTests(TestCase):
         result = campaign_forecast()
 
         self.assertTrue(result['ready'])
-        self.assertEqual(result['campaign_count'], 6)
+        self.assertEqual(result['campaign_count'], 3)
+        self.assertEqual(result['forecast_maturity'], 'EXPLORATOIRE')
         self.assertGreaterEqual(result['predicted_total'], 0)
         self.assertEqual(len(result['distribution']), 4)
         self.assertEqual(
@@ -113,7 +112,7 @@ class CampaignForecastingTests(TestCase):
         self.assertGreaterEqual(len(result['classification_distribution']), 2)
 
     def test_iteration_3_le_ml_previsionnel_ne_touche_jamais_au_workflow_anomalie(self):
-        for index in range(1, 7):
+        for index in range(1, 4):
             self._campaign(index, envoi=index % 2, service=1, attr_absent=1, attr_diff=2)
 
         before_anomalies = Anomalie.objects.count()
@@ -126,7 +125,7 @@ class CampaignForecastingTests(TestCase):
         self.assertEqual(ExempleApprentissage.objects.count(), 0)
 
     def test_iteration_4_logistique_reste_optionnelle_si_une_seule_classe_domine(self):
-        for index in range(1, 7):
+        for index in range(1, 4):
             self._campaign(index, envoi=0, service=0, attr_absent=1, attr_diff=4)
 
         result = campaign_forecast()
