@@ -154,6 +154,38 @@
         </div>
       </section>
 
+      {% if anomaly.niveau != 'SERVICE' %}
+      <details class="validation-comment" {% if selected_learning_cause_id or new_learning_cause_label %}open{% endif %}>
+        <summary>
+          <span><i class="bi bi-lightbulb" aria-hidden="true"></i> Cause réelle connue ?</span>
+          <small>Facultatif · améliore le ML</small>
+        </summary>
+        <div class="validation-comment-body">
+          <div class="bam-section-note mb-3">
+            <i class="bi bi-shield-check"></i>
+            <div><strong>Ne renseignez cette partie que si la cause est réellement confirmée.</strong><br><small>Le constat « valeur absente / différente » n’est pas une cause ML. La cause choisie ci-dessous devient un exemple d’apprentissage humain.</small></div>
+          </div>
+
+          <label class="form-label" for="cause_apprentissage">Cause confirmée</label>
+          <select class="form-select" id="cause_apprentissage" name="cause_apprentissage">
+            <option value="">— Cause non connue / ne pas alimenter le ML —</option>
+            {% for cause in learning_causes %}
+              <option value="{{ cause.pk }}" {% if selected_learning_cause_id|stringformat:'s' == cause.pk|stringformat:'s' %}selected{% endif %}>{{ cause.libelle }}</option>
+            {% endfor %}
+          </select>
+          <small class="d-block mt-1">Une cause doit être confirmée au moins deux fois et le ML doit disposer d’au moins six exemples causaux avant entraînement.</small>
+
+          {% if not (anomaly.niveau == 'ATTRIBUT' and anomaly.type_ecart == 'DIFFERENT') %}
+          <div class="mt-3">
+            <label class="form-label" for="nouvelle_cause_apprentissage">Autre cause confirmée</label>
+            <input class="form-control" id="nouvelle_cause_apprentissage" name="nouvelle_cause_apprentissage" maxlength="255" value="{{ new_learning_cause_label }}" placeholder="Saisissez une cause uniquement si elle est réellement connue">
+            <small>Cette nouvelle cause sera créée dans le référentiel d’apprentissage après validation.</small>
+          </div>
+          {% endif %}
+        </div>
+      </details>
+      {% endif %}
+
       <details class="validation-comment" {% if form.commentaire.errors or form.commentaire.value %}open{% endif %}>
         <summary><span><i class="bi bi-chat-left-text" aria-hidden="true"></i> Ajouter une note</span><small>Facultatif</small></summary>
         <div class="validation-comment-body">
