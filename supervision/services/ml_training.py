@@ -21,10 +21,11 @@ from supervision.models import ExempleApprentissage, ModeleML
 logger = logging.getLogger(__name__)
 
 # Pour la démonstration BAM Supervise, le premier modèle peut être entraîné dès
-# 6 décisions humaines éligibles, à condition d'avoir au moins deux motifs
-# différents représentés par au moins deux exemples chacun.
+# 6 décisions humaines éligibles, dès lors qu'au moins deux motifs différents
+# ont réellement été validés. Une classe peut donc démarrer avec un seul exemple :
+# le seuil global de 6 reste obligatoire et la validation humaine reste prioritaire.
 MIN_TRAINING_EXAMPLES = 6
-MIN_EXAMPLES_PER_CLASS = 2
+MIN_EXAMPLES_PER_CLASS = 1
 RETRAIN_INCREMENT = 5
 
 
@@ -58,6 +59,7 @@ def training_status():
         'motif_classes': len(counts),
         'trainable_classes': len(trainable_classes),
         'minimum_examples': MIN_TRAINING_EXAMPLES,
+        'minimum_examples_per_class': MIN_EXAMPLES_PER_CLASS,
         'ready': ready,
         'active_model': active_model,
     }
@@ -107,7 +109,13 @@ def maybe_retrain_model():
 
     metrics = {}
     test_size = max(len(allowed), round(len(examples) * 0.25))
-    can_holdout = test_size < len(examples) and all(class_counts[code] >= 2 for code in allowed)
+    # Un jeu de validation stratifié n'est pertinent que si chaque classe peut
+    # fournir au moins un exemple au train et au test. Sinon on entraîne tout de
+    # même le modèle final sur l'ensemble des décisions réelles disponibles.
+    can_holdout = (
+        test_size < len(examples)
+        and all(class_counts[code] >= 2 for code in allowed)
+    )
     if can_holdout:
         try:
             x_train, x_test, y_train, y_test = train_test_split(
