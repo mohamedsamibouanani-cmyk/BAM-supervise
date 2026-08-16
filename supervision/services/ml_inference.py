@@ -27,6 +27,27 @@ def _feature_dict(anomaly):
     }
 
 
+def _active_or_new_model():
+    """Retourne le modèle actif, ou tente un premier entraînement à la demande.
+
+    Ce rattrapage est important lorsque l'application possède déjà assez de
+    validations historiques au moment d'un déploiement : aucun nouvel exemple
+    n'est alors créé pour déclencher le signal post_save. L'ouverture d'un dossier
+    analysé suffit donc à rendre l'aide ML disponible dès que le seuil est atteint.
+    """
+    model = ModeleML.objects.filter(actif=True).order_by('-entraine_le').first()
+    if model is not None:
+        return model
+
+    # Import local pour éviter tout couplage au chargement des modules de signaux.
+    from .ml_training import safe_maybe_retrain_model
+
+    model = safe_maybe_retrain_model()
+    if model is not None:
+        return model
+    return ModeleML.objects.filter(actif=True).order_by('-entraine_le').first()
+
+
 def ensure_ml_predictions(anomaly, max_suggestions=2):
     """Ajoute les suggestions du modèle actif même si des règles ont déjà conclu.
 
@@ -37,7 +58,7 @@ def ensure_ml_predictions(anomaly, max_suggestions=2):
     if anomaly.niveau == Anomalie.Niveau.SERVICE:
         return []
 
-    model = ModeleML.objects.filter(actif=True).order_by('-entraine_le').first()
+    model = _active_or_new_model()
     if model is None:
         return []
 
@@ -93,8 +114,8 @@ def ensure_ml_predictions(anomaly, max_suggestions=2):
                     source_prediction=PredictionMotif.Source.ML,
                     modele=model,
                     motif=motif,
-                    # Cible proposée uniquement comme point de départ. La décision
-                    # et le ou les systèmes à corriger restent validés humainement.
+                    # La suggestion ML porte sur le motif. Le système observé reste
+                    # un indice de contexte et la cible finale reste une décision humaine.
                     systeme_a_corriger_predit=anomaly.systeme_ecart,
                     rang=last_rank,
                     score_confiance=Decimal(
