@@ -1,0 +1,69 @@
+<section class="panel dashboard-ml-panel" aria-labelledby="forecast-panel-title">
+  <div class="panel-header">
+    <div>
+      <div class="page-eyebrow"><i class="bi bi-graph-up-arrow"></i> Prévision des campagnes</div>
+      <h2 class="panel-title" id="forecast-panel-title">Machine Learning</h2>
+      <p class="panel-subtitle">Le ML n’intervient plus dans le diagnostic d’une anomalie. Il apprend uniquement de l’historique des campagnes pour estimer la prochaine campagne.</p>
+    </div>
+    {% if forecast.ready %}
+      <span class="status-badge status-RESOLUE"><i class="bi bi-stars"></i> Prévision disponible</span>
+    {% else %}
+      <span class="status-badge status-ANALYSEE"><i class="bi bi-hourglass-split"></i> Historique insuffisant</span>
+    {% endif %}
+  </div>
+
+  <div class="panel-body">
+    {% if forecast.ready %}
+      <div class="ml-dashboard-hero">
+        <div class="ml-dashboard-orb"><i class="bi bi-stars"></i></div>
+        <div class="ml-dashboard-hero-copy">
+          <span>Prochaine campagne</span>
+          <strong>≈ {{ forecast.predicted_total }} anomalies</strong>
+          <small>intervalle indicatif : {{ forecast.interval_low }} – {{ forecast.interval_high }}</small>
+        </div>
+        <div class="ml-dashboard-probability">
+          <span>Tendance</span>
+          <strong>{{ forecast.trend }}</strong>
+          <small>dernière campagne : {{ forecast.last_campaign_total }}</small>
+        </div>
+      </div>
+
+      <div class="ml-dashboard-grid">
+        {% for row in forecast.distribution %}
+          <div class="ml-dashboard-stat">
+            <span>{{ row.label }}</span>
+            <strong>{{ row.count }}</strong>
+            <small>{{ row.percent }} % de la prévision</small>
+          </div>
+        {% endfor %}
+      </div>
+
+      <div class="bam-section-note mt-3">
+        <i class="bi bi-bar-chart-line"></i>
+        <div><strong>Type probablement dominant :</strong> {{ forecast.dominant_type|default:'—' }}. {% if forecast.historical_dominant_attribute %}Attribut historiquement le plus répété : <strong>{{ forecast.historical_dominant_attribute }}</strong>.{% endif %} {% if forecast.historical_dominant_system %}Système le plus souvent observé : <strong>{{ forecast.historical_dominant_system }}</strong>.{% endif %}</div>
+      </div>
+      <div class="bam-section-note mt-3">
+        <i class="bi bi-info-circle"></i>
+        <div><strong>Important :</strong> cette prévision est une aide avant import. Après import, seul le moteur déterministe SMI/SICOM/SIBO fait foi pour le nombre réel et les types réels d’anomalies.</div>
+      </div>
+    {% else %}
+      <div class="ml-dashboard-empty">
+        <div class="ml-dashboard-orb"><i class="bi bi-database"></i></div>
+        <div>
+          <h3>Le ML attend davantage de campagnes</h3>
+          <p>{{ forecast.campaign_count }} campagne(s) terminée(s) disponible(s). Il en faut au minimum {{ forecast.minimum_campaigns }} pour commencer une prévision de la campagne suivante.</p>
+        </div>
+      </div>
+      <div class="ml-dashboard-grid">
+        <div class="ml-dashboard-stat"><span>Historique disponible</span><strong>{{ forecast.campaign_count }} / {{ forecast.minimum_campaigns }}</strong><small>{{ forecast.remaining_campaigns }} campagne(s) encore nécessaire(s)</small></div>
+        <div class="ml-dashboard-stat"><span>Type le plus répété</span><strong>{{ forecast.historical_dominant_type|default:'—' }}</strong><small>statistique historique, pas une prédiction</small></div>
+        <div class="ml-dashboard-stat"><span>Attribut le plus répété</span><strong>{{ forecast.historical_dominant_attribute|default:'—' }}</strong><small>sur les campagnes terminées</small></div>
+        <div class="ml-dashboard-stat"><span>Méthode prévue</span><strong>Random Forest</strong><small>prévision t → t+1</small></div>
+      </div>
+      <div class="bam-section-note mt-3">
+        <i class="bi bi-shield-check"></i>
+        <div><strong>Pas de faux ML :</strong> tant que l’historique est insuffisant, BAM Supervise affiche uniquement des statistiques réelles et n’invente aucune prévision.</div>
+      </div>
+    {% endif %}
+  </div>
+</section>
