@@ -1,7 +1,7 @@
 from django import template
 
 from supervision.models import ModeleML, PredictionMotif
-from supervision.services.ml_training import training_status
+from supervision.services.ml_training import safe_maybe_retrain_model, training_status
 
 
 register = template.Library()
@@ -11,6 +11,15 @@ register = template.Library()
 def ml_dashboard_card():
     status = training_status()
     model = status['active_model']
+
+    # Si l'historique existant est déjà suffisant, le tableau de bord déclenche le
+    # premier entraînement immédiatement. Cela évite d'attendre une nouvelle
+    # validation uniquement pour réveiller le signal post_save.
+    if model is None and status['ready']:
+        model = safe_maybe_retrain_model()
+        status = training_status()
+        model = status['active_model'] or model
+
     metrics = model.metriques or {} if model else {}
     accuracy = metrics.get('accuracy_validation')
     return {
