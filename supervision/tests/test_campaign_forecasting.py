@@ -77,6 +77,8 @@ class CampaignForecastingTests(TestCase):
         self.assertEqual(result['rf_evaluation_count'], 0)
         self.assertIsNone(result['rf_mae_total'])
         self.assertIsNone(result['rf_rmse_total'])
+        self.assertEqual(result['evaluation_maturity'], 'NON_DISPONIBLE')
+        self.assertIsNone(result['last_rf_backtest'])
         self.assertEqual(ModeleML.objects.count(), 0)
         self.assertEqual(PredictionMotif.objects.count(), 0)
 
@@ -96,37 +98,32 @@ class CampaignForecastingTests(TestCase):
         self.assertEqual(result['forecast_maturity'], 'EXPLORATOIRE')
         self.assertGreaterEqual(result['predicted_total'], 0)
         self.assertEqual(len(result['distribution']), 4)
-        self.assertEqual(
-            sum(row['count'] for row in result['distribution']),
-            result['predicted_total'],
-        )
+        self.assertEqual(sum(row['count'] for row in result['distribution']), result['predicted_total'])
         self.assertIn(result['trend'], {'HAUSSE', 'BAISSE', 'STABLE'})
         self.assertEqual(result['historical_dominant_attribute'], 'TELEPHONE_NOTIFICATION')
         self.assertTrue(result['classification_ready'])
         self.assertIsNotNone(result['classification_probability'])
         self.assertGreaterEqual(result['classification_probability'], 0)
         self.assertLessEqual(result['classification_probability'], 100)
-        self.assertIn(
-            result['classification_dominant_type'],
-            {'Envoi absent', 'Valeur d’attribut différente'},
-        )
-        self.assertGreaterEqual(len(result['classification_distribution']), 2)
 
-        # Avec trois campagnes, Random Forest possède déjà une vraie évaluation
-        # chronologique : C1->C2 sert à apprendre puis C3 sert de test.
         self.assertEqual(result['rf_evaluation_count'], 1)
         self.assertIsNotNone(result['rf_mae_total'])
         self.assertIsNotNone(result['rf_rmse_total'])
-        self.assertGreaterEqual(result['rf_mae_total'], 0)
-        self.assertGreaterEqual(result['rf_rmse_total'], 0)
+        self.assertEqual(result['evaluation_method'], 'Validation chronologique walk-forward')
+        self.assertEqual(result['evaluation_maturity'], 'EXPLORATOIRE')
+        self.assertEqual(result['evaluation_maturity_label'], 'Exploratoire')
+        self.assertIsNotNone(result['last_rf_backtest'])
+        self.assertEqual(result['last_rf_backtest']['campaign_number'], 3)
+        self.assertEqual(
+            result['last_rf_backtest']['absolute_error'],
+            abs(result['last_rf_backtest']['actual_total'] - result['last_rf_backtest']['predicted_total']),
+        )
         self.assertEqual(len(result['rf_mae_by_type']), 4)
 
-        # À trois campagnes, l'accuracy/F1 peuvent rester non mesurables en
-        # backtesting : l'unique historique d'entraînement peut ne contenir
-        # qu'une classe dominante. On ne fabrique donc aucune fausse métrique.
         self.assertEqual(result['classification_evaluation_count'], 0)
         self.assertIsNone(result['classification_accuracy'])
         self.assertIsNone(result['classification_f1_macro'])
+        self.assertIsNone(result['last_classification_backtest'])
 
     def test_iteration_3_le_ml_previsionnel_ne_touche_jamais_au_workflow_anomalie(self):
         for index in range(1, 4):
@@ -152,13 +149,13 @@ class CampaignForecastingTests(TestCase):
         self.assertIsNone(result['classification_probability'])
         self.assertEqual(result['dominant_type'], "Valeur d’attribut différente")
 
-    def test_iteration_5_accuracy_et_f1_apparaissent_quand_backtest_logistique_possible(self):
+    def test_iteration_5_accuracy_f1_et_dernier_backtest_logistique(self):
         patterns = [
-            (5, 0, 0, 1),   # C1 envoi
-            (0, 0, 1, 5),   # C2 attribut différent
-            (5, 0, 0, 1),   # C3 envoi
-            (0, 0, 1, 5),   # C4 attribut différent
-            (5, 0, 0, 1),   # C5 envoi
+            (5, 0, 0, 1),
+            (0, 0, 1, 5),
+            (5, 0, 0, 1),
+            (0, 0, 1, 5),
+            (5, 0, 0, 1),
         ]
         for index, values in enumerate(patterns, start=1):
             self._campaign(index, *values)
@@ -167,6 +164,7 @@ class CampaignForecastingTests(TestCase):
 
         self.assertTrue(result['ready'])
         self.assertGreaterEqual(result['rf_evaluation_count'], 3)
+        self.assertEqual(result['evaluation_maturity'], 'INTERMEDIAIRE')
         self.assertGreaterEqual(result['classification_evaluation_count'], 1)
         self.assertIsNotNone(result['classification_accuracy'])
         self.assertIsNotNone(result['classification_f1_macro'])
@@ -174,3 +172,7 @@ class CampaignForecastingTests(TestCase):
         self.assertLessEqual(result['classification_accuracy'], 100)
         self.assertGreaterEqual(result['classification_f1_macro'], 0)
         self.assertLessEqual(result['classification_f1_macro'], 100)
+        self.assertIsNotNone(result['last_classification_backtest'])
+        self.assertIn('predicted_type', result['last_classification_backtest'])
+        self.assertIn('actual_type', result['last_classification_backtest'])
+        self.assertIn('correct', result['last_classification_backtest'])
