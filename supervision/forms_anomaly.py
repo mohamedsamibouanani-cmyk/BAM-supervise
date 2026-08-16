@@ -95,19 +95,15 @@ class MultiCauseValidationForm(forms.Form):
                 ]
                 self.fields['decision'].initial = 'MODIFIE'
 
-        difference_constat = None
-        if (
+        # Tout ATTRIBUT/DIFFERENT est une situation où le superviseur doit pouvoir
+        # choisir librement le ou les systèmes à corriger. Cette règle ne dépend
+        # pas du motif proposé : un téléphone de format invalide peut aussi être
+        # différent entre les trois systèmes et doit conserver ce choix humain.
+        difference_constat = (
             anomaly.niveau == anomaly.Niveau.ATTRIBUT
             and anomaly.type_ecart == anomaly.TypeEcart.DIFFERENT
-        ):
-            for candidate in qs:
-                if (candidate.explication or {}).get('role_diagnostic') == 'CONSTAT_ATTRIBUT_DIFFERENT':
-                    difference_constat = candidate
-                    break
+        )
         if difference_constat:
-            # Pour une différence de valeur, BAM Supervise ne connaît pas la valeur
-            # métier de référence. Le superviseur peut donc choisir librement 1, 2
-            # ou les 3 systèmes comme responsables de la correction.
             self.fields['systeme_a_corriger_final'] = forms.ModelMultipleChoiceField(
                 queryset=Systeme.objects.filter(actif=True).order_by('ordre_comparaison'),
                 required=True,
@@ -226,7 +222,6 @@ class MultiCauseValidationForm(forms.Form):
         return cleaned
 
     def _clean_attribute_difference(self, cleaned):
-        prediction = cleaned.get('prediction') or self.anomaly.predictions.order_by('rang').first()
         decision = cleaned.get('decision')
         systems = list(cleaned.get('systeme_a_corriger_final') or [])
 
@@ -235,13 +230,22 @@ class MultiCauseValidationForm(forms.Form):
             if unknown is None:
                 raise forms.ValidationError('Le motif MOTIF_INCONNU doit être initialisé.')
             cleaned['motif_final'] = unknown
+            cleaned['prediction'] = None
             cleaned['predictions_selectionnees'] = []
         else:
-            if prediction is None:
-                raise forms.ValidationError('Le constat de valeurs différentes est introuvable.')
-            cleaned['prediction'] = prediction
-            cleaned['predictions_selectionnees'] = [prediction]
-            cleaned['motif_final'] = prediction.motif
+            technical = Motif.objects.filter(
+                code_motif='ATTRIBUT_DIFFERENT', actif=True
+            ).first()
+            if technical is None:
+                raise forms.ValidationError('Le motif ATTRIBUT_DIFFERENT doit être initialisé.')
+            neutral_prediction = self.anomaly.predictions.filter(
+                explication__role_diagnostic='CONSTAT_ATTRIBUT_DIFFERENT'
+            ).order_by('rang').first()
+            cleaned['prediction'] = neutral_prediction
+            cleaned['predictions_selectionnees'] = (
+                [neutral_prediction] if neutral_prediction is not None else []
+            )
+            cleaned['motif_final'] = technical
             cleaned['decision'] = 'MODIFIE'
 
         if not systems:
@@ -262,14 +266,10 @@ class MultiCauseValidationForm(forms.Form):
         if self.anomaly.niveau == self.anomaly.Niveau.SERVICE:
             return self._clean_service(cleaned)
 
-        difference_constat = (
+        if (
             self.anomaly.niveau == self.anomaly.Niveau.ATTRIBUT
             and self.anomaly.type_ecart == self.anomaly.TypeEcart.DIFFERENT
-            and self.anomaly.predictions.filter(
-                explication__role_diagnostic='CONSTAT_ATTRIBUT_DIFFERENT'
-            ).exists()
-        )
-        if difference_constat:
+        ):
             return self._clean_attribute_difference(cleaned)
 
         decision = cleaned.get('decision')
