@@ -30,11 +30,9 @@ class Command(BaseCommand):
             'MONTANT_CRBT': ('Montant CRBT', 'SERVICE', 'NOMBRE', False),
             'TELEPHONE_NOTIFICATION': ('Téléphone de notification', 'SERVICE', 'TEXTE', True),
             'MONTANT_VALEUR_DECLAREE': ('Montant valeur déclarée', 'SERVICE', 'NOMBRE', False),
-            # Alias historiques conservés pour les anciens imports/référentiels.
             'CRBT': ('Montant CRBT', 'SERVICE', 'NOMBRE', False),
             'TELEPHONE': ('Téléphone destinataire', 'ENVOI', 'TEXTE', True),
             'VALEUR_DECLAREE': ('Valeur déclarée', 'SERVICE', 'NOMBRE', False),
-            # Champs utiles au diagnostic N1, mais non comparés comme attributs N3.
             'VILLE': ('Ville de destination', 'ENVOI', 'TEXTE', False),
             'VILLE_DESTINATION': ('Ville de destination', 'ENVOI', 'TEXTE', False),
             'PAYS': ('Pays de destination', 'ENVOI', 'TEXTE', False),
@@ -68,6 +66,14 @@ class Command(BaseCommand):
             ('SERVICE_ABSENT', 'Service absent / non synchronisé', 'SERVICE', 'SYSTEME', 'ARTICLE'),
             ('SERVICE_INCONNU', 'Service non reconnu', 'SERVICE', 'REGLE', 'ARTICLE'),
             ('MOTIF_INCONNU', 'Motif non identifiable', 'ENVOI', 'TECHNIQUE', ''),
+
+            # Causes causales proposées uniquement comme vocabulaire de validation
+            # humaine. Elles ne sont jamais attribuées automatiquement par le moteur.
+            ('ATTRIBUT_SOURCE_NON_RENSEIGNEE', 'Donnée non renseignée dans le système source', 'ATTRIBUT', 'APPRENTISSAGE', ''),
+            ('ATTRIBUT_MODIFICATION_NON_PROPAGEE', 'Modification non propagée vers les autres systèmes', 'ATTRIBUT', 'APPRENTISSAGE', ''),
+            ('ATTRIBUT_MAPPING_INCOMPLET', 'Mapping ou paramétrage de synchronisation incomplet', 'ATTRIBUT', 'APPRENTISSAGE', ''),
+            ('ENVOI_SOURCE_NON_RENSEIGNE', 'Donnée d’envoi non renseignée dans le système source', 'ENVOI', 'APPRENTISSAGE', ''),
+            ('ENVOI_MODIFICATION_NON_PROPAGEE', 'Modification d’envoi non propagée', 'ENVOI', 'APPRENTISSAGE', ''),
         ]
         motifs = {}
         for code, label, level, category, field in motif_data:
@@ -79,9 +85,6 @@ class Command(BaseCommand):
                 },
             )
 
-        # Ces règles historiques restent disponibles pour les anciens dossiers,
-        # mais le moteur N1 courant applique désormais un ordre strict :
-        # obligatoire absent -> format -> motif non identifiable.
         for col in ('VILLE', 'VILLE_DESTINATION'):
             RegleMetier.objects.update_or_create(
                 code_regle=f'ENVOI_VILLE_VIDE_{col}',
