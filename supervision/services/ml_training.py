@@ -17,6 +17,8 @@ from sklearn.pipeline import Pipeline
 
 from supervision.models import ExempleApprentissage, ModeleML
 
+from .ml_policy import NON_CAUSAL_MOTIF_CODES
+
 
 logger = logging.getLogger(__name__)
 
@@ -25,16 +27,6 @@ logger = logging.getLogger(__name__)
 MIN_TRAINING_EXAMPLES = 6
 MIN_EXAMPLES_PER_CLASS = 1
 RETRAIN_INCREMENT = 5
-
-# Ces motifs décrivent l'écart déjà détecté par le moteur. Les apprendre ferait
-# simplement répéter "valeur absente" ou "valeur différente" au lieu d'apprendre
-# une cause. Ils restent dans l'historique métier mais sont exclus du dataset ML.
-NON_CAUSAL_MOTIF_CODES = {
-    'ATTRIBUT_NON_SYNCHRONISE',
-    'ATTRIBUT_DIFFERENT',
-    'SERVICE_ABSENT',
-    'MOTIF_INCONNU',
-}
 
 
 def _normalise_features(example):
@@ -74,6 +66,7 @@ def training_status():
     trainable_examples = sum(counts[code] for code in trainable_classes)
     active_model = ModeleML.objects.filter(actif=True).order_by('-entraine_le').first()
     ready = trainable_examples >= MIN_TRAINING_EXAMPLES and len(trainable_classes) >= 2
+    singleton_classes = sorted(code for code, count in counts.items() if count == 1)
     return {
         'eligible_examples': len(eligible),
         'trainable_examples': trainable_examples,
@@ -82,6 +75,7 @@ def training_status():
         'trainable_classes': len(trainable_classes),
         'minimum_examples': MIN_TRAINING_EXAMPLES,
         'minimum_examples_per_class': MIN_EXAMPLES_PER_CLASS,
+        'singleton_classes': singleton_classes,
         'ready': ready,
         'active_model': active_model,
     }
@@ -144,7 +138,14 @@ def maybe_retrain_model():
     pipeline.fit(x, y)
     metrics['nb_classes'] = len(set(y))
     metrics['classes'] = sorted(set(y))
+    metrics['class_counts'] = {
+        code: int(class_counts[code]) for code in sorted(allowed)
+    }
+    metrics['classes_avec_un_seul_exemple'] = sorted(
+        code for code in allowed if class_counts[code] == 1
+    )
     metrics['motifs_non_causaux_exclus'] = sorted(NON_CAUSAL_MOTIF_CODES)
+    metrics['jeu_validation_disponible'] = bool('accuracy_validation' in metrics)
 
     model_dir = Path(settings.MEDIA_ROOT) / 'ml_models'
     model_dir.mkdir(parents=True, exist_ok=True)
