@@ -10,6 +10,11 @@ from .models import (
     Notification, PredictionMotif, Systeme, ValidationMotif,
 )
 from .services.analysis import prediction_target_codes, refresh_prediction_routing
+from .services.learning_capture import (
+    apply_learning_cause,
+    available_learning_causes,
+    resolve_learning_cause,
+)
 from .services.ml_inference import ensure_ml_predictions
 from .services.ml_training import training_status
 from .services.notifications import send_validation_email
@@ -84,8 +89,6 @@ def _ml_context(anomaly):
 
 def _create_learning_example(validation):
     anomaly = validation.anomalie
-    # Niveau SERVICE = constat de présence uniquement. Il n'existe pas de motif
-    # métier à apprendre à ce niveau, donc aucune donnée d'apprentissage motif/cause.
     if anomaly.niveau == Anomalie.Niveau.SERVICE:
         return None
     return ExempleApprentissage.objects.create(
@@ -161,9 +164,23 @@ def anomaly_validate(request, pk):
     ensure_ml_predictions(anomaly)
     refresh_prediction_routing(anomaly)
 
+    learning_causes = available_learning_causes(anomaly)
+    selected_learning_cause_id = request.POST.get('cause_apprentissage') if request.method == 'POST' else ''
+    new_learning_cause_label = (
+        request.POST.get('nouvelle_cause_apprentissage', '').strip()
+        if request.method == 'POST'
+        else ''
+    )
+
     if request.method == 'POST':
         form = MultiCauseValidationForm(anomaly, request.POST)
         if form.is_valid():
+            learning_cause = resolve_learning_cause(
+                anomaly,
+                cause_id=selected_learning_cause_id,
+                new_label=new_learning_cause_label,
+            )
+
             anomaly.validations.filter(est_finale=True).update(est_finale=False)
             next_version = (
                 anomaly.validations.order_by('-version_validation')
@@ -263,6 +280,11 @@ def anomaly_validate(request, pk):
                     'Révisez le diagnostic au lieu de notifier le système observé.',
                 )
             else:
+                # Une cause explicite du superviseur enrichit un seul exemple métier
+                # par dossier, même si plusieurs systèmes sont choisis comme cibles.
+                if learning_cause is not None:
+                    apply_learning_cause(validations[0], learning_cause)
+
                 old_status = anomaly.statut
                 anomaly.statut = Anomalie.Statut.VALIDEE
                 anomaly.save(update_fields=['statut'])
@@ -312,6 +334,10 @@ def anomaly_validate(request, pk):
                         ],
                     }
 
+                if learning_cause is not None:
+                    audit_values['cause_apprentissage'] = learning_cause.code_motif
+                    history_comment += f' Cause réelle confirmée pour le ML : {learning_cause.libelle}.'
+
                 HistoriqueAnomalie.objects.create(
                     anomalie=anomaly,
                     ancien_statut=old_status,
@@ -333,15 +359,24 @@ def anomaly_validate(request, pk):
                         targets = ', '.join(
                             v.systeme_a_corriger_final.code_systeme for v in validations
                         )
+                        suffix = (
+                            f' Cause ML mémorisée : {learning_cause.libelle}.'
+                            if learning_cause is not None else ''
+                        )
                         messages.success(
                             request,
                             f'Valeur différente validée. Système(s) à corriger : {targets}. '
-                            'Les équipes correspondantes ont été notifiées.',
+                            f'Les équipes correspondantes ont été notifiées.{suffix}',
                         )
                     else:
+                        suffix = (
+                            f' Cause ML mémorisée : {learning_cause.libelle}.'
+                            if learning_cause is not None else ''
+                        )
                         messages.success(
                             request,
-                            f'{len(validations)} cause(s) validée(s). Les équipes responsables ont été notifiées.',
+                            f'{len(validations)} cause(s) validée(s). '
+                            f'Les équipes responsables ont été notifiées.{suffix}',
                         )
                 except Exception as exc:
                     prefix = 'Constat enregistré' if anomaly.niveau == Anomalie.Niveau.SERVICE else 'Décision enregistrée'
@@ -353,6 +388,12 @@ def anomaly_validate(request, pk):
     else:
         form = MultiCauseValidationForm(anomaly)
 
-    context = {'form': form, 'anomaly': anomaly}
+    context = {
+        'form': form,
+        'anomaly': anomaly,
+        'learning_causes': learning_causes,
+        'selected_learning_cause_id': selected_learning_cause_id,
+        'new_learning_cause_label': new_learning_cause_label,
+    }
     context.update(_ml_context(anomaly))
     return render(request, 'supervision/validation_form.html', context)
