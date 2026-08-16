@@ -17,15 +17,13 @@ from sklearn.pipeline import Pipeline
 
 from supervision.models import ExempleApprentissage, ModeleML
 
-from .ml_policy import NON_CAUSAL_MOTIF_CODES
+from .ml_policy import MIN_CAUSE_SUPPORT, NON_CAUSAL_MOTIF_CODES
 
 
 logger = logging.getLogger(__name__)
 
-# Premier modèle de démonstration : 6 décisions réellement exploitables par le ML,
-# avec au moins deux causes différentes validées humainement.
 MIN_TRAINING_EXAMPLES = 6
-MIN_EXAMPLES_PER_CLASS = 1
+MIN_EXAMPLES_PER_CLASS = MIN_CAUSE_SUPPORT
 RETRAIN_INCREMENT = 5
 
 
@@ -66,7 +64,7 @@ def training_status():
     trainable_examples = sum(counts[code] for code in trainable_classes)
     active_model = ModeleML.objects.filter(actif=True).order_by('-entraine_le').first()
     ready = trainable_examples >= MIN_TRAINING_EXAMPLES and len(trainable_classes) >= 2
-    singleton_classes = sorted(code for code, count in counts.items() if count == 1)
+    under_supported_classes = sorted(code for code, count in counts.items() if count < MIN_EXAMPLES_PER_CLASS)
     return {
         'eligible_examples': len(eligible),
         'trainable_examples': trainable_examples,
@@ -75,7 +73,7 @@ def training_status():
         'trainable_classes': len(trainable_classes),
         'minimum_examples': MIN_TRAINING_EXAMPLES,
         'minimum_examples_per_class': MIN_EXAMPLES_PER_CLASS,
-        'singleton_classes': singleton_classes,
+        'under_supported_classes': under_supported_classes,
         'ready': ready,
         'active_model': active_model,
     }
@@ -91,7 +89,7 @@ def _should_retrain(status):
 
 
 def maybe_retrain_model():
-    """Entraîne le modèle uniquement sur des causes humaines exploitables."""
+    """Entraîne le modèle uniquement sur des causes humaines suffisamment étayées."""
     status = training_status()
     if not _should_retrain(status):
         return None
@@ -123,11 +121,7 @@ def maybe_retrain_model():
     if can_holdout:
         try:
             x_train, x_test, y_train, y_test = train_test_split(
-                x,
-                y,
-                test_size=test_size,
-                random_state=42,
-                stratify=y,
+                x, y, test_size=test_size, random_state=42, stratify=y,
             )
             pipeline.fit(x_train, y_train)
             metrics['accuracy_validation'] = round(float(accuracy_score(y_test, pipeline.predict(x_test))), 4)
@@ -138,12 +132,8 @@ def maybe_retrain_model():
     pipeline.fit(x, y)
     metrics['nb_classes'] = len(set(y))
     metrics['classes'] = sorted(set(y))
-    metrics['class_counts'] = {
-        code: int(class_counts[code]) for code in sorted(allowed)
-    }
-    metrics['classes_avec_un_seul_exemple'] = sorted(
-        code for code in allowed if class_counts[code] == 1
-    )
+    metrics['class_counts'] = {code: int(class_counts[code]) for code in sorted(allowed)}
+    metrics['support_minimum_par_cause'] = MIN_EXAMPLES_PER_CLASS
     metrics['motifs_non_causaux_exclus'] = sorted(NON_CAUSAL_MOTIF_CODES)
     metrics['jeu_validation_disponible'] = bool('accuracy_validation' in metrics)
 
